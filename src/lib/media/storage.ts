@@ -168,13 +168,19 @@ export async function getMediaAsset(id: string) {
   return asset;
 }
 
-export async function openMediaAsset(asset: MediaAsset) {
+/** The asset's own file, checked: inside the media folder, the file itself (not a link), the size recorded. */
+async function checkedAssetFile(asset: MediaAsset) {
   assertRelativePath(asset);
+  const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, false);
+  const file = join(/* turbopackIgnore: true */ directory, `${asset.id}.${extensions[asset.mediaType]}`);
+  const stat = await lstat(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== asset.byteSize || await realpath(/* turbopackIgnore: true */ file) !== file) throw pathError();
+  return { file, stat };
+}
+
+export async function openMediaAsset(asset: MediaAsset) {
   try {
-    const directory = await safeOwnerDirectory(LOCAL_WORKSPACE_ID, false);
-    const file = join(/* turbopackIgnore: true */ directory, `${asset.id}.${extensions[asset.mediaType]}`);
-    const stat = await lstat(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== asset.byteSize || await realpath(/* turbopackIgnore: true */ file) !== file) throw pathError();
+    const { file, stat } = await checkedAssetFile(asset);
     const handle = await open(/* turbopackIgnore: true */ file, "r");
     try {
       const opened = await handle.stat();
@@ -182,6 +188,16 @@ export async function openMediaAsset(asset: MediaAsset) {
       return handle;
     } catch (error) { await handle.close(); throw error; }
   } catch (error) { if (isMissing(error)) throw pathError(); throw error; }
+}
+
+/**
+ * Where the asset's own file is on disk, for showing it in the file manager:
+ * checked as a read is (inside the media folder, the file itself, not a link,
+ * the size recorded), so only the asset's file can be pointed at. Missing:
+ * NOT_FOUND, as for a read.
+ */
+export async function locateMediaAsset(asset: MediaAsset): Promise<string> {
+  try { return (await checkedAssetFile(asset)).file; } catch (error) { if (isMissing(error)) throw pathError(); throw error; }
 }
 
 export async function readMediaAsset(asset: MediaAsset) {

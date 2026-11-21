@@ -22,6 +22,7 @@ import { ComposerChoices, type ChoiceWord } from "@/features/chat/composer-choic
 import { SKILL_ICON, SlashMenu, toolIcon } from "@/features/chat/slash-menu";
 import { useSlashMenu } from "@/features/chat/use-slash-menu";
 import { ComposerAttachments, QueuedMessages } from "@/features/chat/composer-parts";
+import { Reveal } from "@/components/ui/reveal";
 import { DOCUMENT_TOOLS, toolLabel } from "@/features/chat/use-tools";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import { ModelMode } from "@/features/chat/page-utils";
@@ -106,8 +107,10 @@ type Props = Pick<
   | "queueMessage"
   | "removeQueued"
   | "editQueued"
+  | "attachingImageKey"
 >;
 export function Composer({
+  attachingImageKey,
   onStop,
   onSubmit,
   modelMode,
@@ -298,7 +301,9 @@ export function Composer({
             />
           </div>
         </div>
-        <ComposerAttachments attachments={attachments} removeAttachmentAt={removeAttachmentAt} isUploadingAttachments={isUploadingAttachments} />
+        {/* The row opens as smoothly as a notice does, so the message box grows into it instead of jumping. */}
+        <Reveal className="composer-attachments-reveal">{attachments.length || isUploadingAttachments
+          ? <ComposerAttachments attachments={attachments} removeAttachmentAt={removeAttachmentAt} isUploadingAttachments={isUploadingAttachments} /> : null}</Reveal>
 
         <div className="flex items-end justify-between gap-2 px-3 pb-3">
           <div className="composer-controls flex min-w-0 flex-1 flex-wrap items-center">
@@ -477,7 +482,8 @@ export function Composer({
             <Button
               size="icon"
               className="rounded-full"
-              disabled={!isConversationReady || isDocumentScopeSaving || !canSend}
+              // A picture being added from the conversation joins this message; sending waits for it.
+              disabled={!isConversationReady || isDocumentScopeSaving || !canSend || Boolean(attachingImageKey)}
               type="submit"
             >
               <ArrowUp aria-hidden="true" strokeWidth={2.25} />

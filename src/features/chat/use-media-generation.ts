@@ -274,10 +274,10 @@ export function useMediaGeneration({ session, activeChatId, isConversationReady,
     const stored = assetIdFromUrl(params.imageUrl) !== null;
     const version = viewVersionRef.current;
     const isOriginView = () => version === viewVersionRef.current && viewRef.current.session === session && modeRef.current === modelMode;
-    if (stored) {
-      lock.begin();
-      setIsUploadingAttachments(true);
-    }
+    // A stored picture is not uploaded again: only its type is read, which takes a moment. That is the
+    // reuse button's own wait, and sending waits for it, rather than the whole page turning busy (the send
+    // button changing to stop, every control dimming) and back.
+    if (stored) lock.begin();
     setPageError(null);
     setAttachingImageKey(params.key);
     try {
@@ -294,10 +294,12 @@ export function useMediaGeneration({ session, activeChatId, isConversationReady,
         if (count >= MEDIA_LIMITS.attachmentCount) { setPageError(t("lib.media.tooManyAttachments")); return; }
         setAttachmentsOf(session, current => [...current, { type: "file", url: params.imageUrl, mediaType, filename }]);
       }
-      if (isOriginView()) textareaRef.current?.focus();
+      // Focus without scrolling: the conversation stays where it was being read.
+      if (isOriginView()) textareaRef.current?.focus({ preventScroll: true });
     } catch (error) {
       if (isOriginView()) setPageError(error instanceof Error ? error.message : t("mediaGen.attachImageFailed"));
     } finally {
+      // The last one out clears the page's upload state, whichever kind it was.
       if (stored && lock.end()) setIsUploadingAttachments(false);
       setAttachingImageKey((current) => current === params.key ? null : current);
     }

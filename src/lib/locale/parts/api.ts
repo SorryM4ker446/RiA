@@ -49,6 +49,7 @@ export const apiMessages = {
   // --- media library -------------------------------------------------------
   "api.media.libraryFailed": "无法读取媒体资源库。",
   "api.media.detailFailed": "无法读取媒体详情。",
+  "api.media.locateFailed": "无法找到媒体文件的位置。",
   "api.media.regenerateFailed": "重新生成失败，原资源已保留。",
   // Fallback used when a stored asset has no generation recipe; the richer
   // per-asset reasons come from the media library and stay with that module.

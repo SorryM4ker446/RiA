@@ -156,6 +156,8 @@ export function EditedFiles({ parts, chatId = null, runIds = [] }: { parts: read
   }, [canUndo, refresh]);
 
   if (!files.length && complete) return null;
+  // Nothing confirmed changed, but the count could not be finished: a "0" would read as "nothing changed".
+  if (!files.length) return <p className="edited-files-incomplete mt-5 text-xs text-muted-foreground" role="status">{t("ui.chat.edited-files.statsIncomplete")}</p>;
   const canOpen = typeof window !== "undefined" && !!window.riaDesktop?.openFile;
   const stateOf = (file: FileRef) => states?.get(refKey(file));
   const undoable = states ? [...states.values()].filter(item => item.status === "ready") : [];
@@ -293,7 +295,7 @@ export function EditedFiles({ parts, chatId = null, runIds = [] }: { parts: read
       <CardDescription className="sr-only">{["created", "modified", "deleted"].flatMap(kind => {
         const count = files.filter(file => file.kind === kind).length;
         return count ? [tf("ui.chat.edited-files.items", { v0: labels()[kind as keyof typeof labels], v1: count })] : [];
-      }).join(" · ") || t("ui.chat.edited-files.fileChangeDetectionIncomplete")}</CardDescription>
+      }).join(" · ")}</CardDescription>
     </CardHeader>
     <CardContent className="flex flex-col gap-0 px-1.5 pb-1.5">
       <ul className="flex min-w-0 flex-col gap-1">
@@ -302,7 +304,7 @@ export function EditedFiles({ parts, chatId = null, runIds = [] }: { parts: read
       {/* The rest unfold under the first three rather than jumping in. */}
       <Reveal>{expanded && files.length > 3 ? <ul className="flex min-w-0 flex-col gap-1 pt-1">{files.slice(3).map(renderRow)}</ul> : null}</Reveal>
       {files.length > 3 ? <Button type="button" variant="ghost" size="sm" onClick={() => setExpanded(value => !value)}>{expanded ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}{expanded ? t("ui.chat.edited-files.collapse") : tf("ui.chat.edited-files.showMoreFiles", { v0: files.length - 3 })}</Button> : null}
-      {!complete || !canOpen ? <p className="px-2 py-1 text-xs text-muted-foreground">{!complete ? t("ui.chat.edited-files.someFilesCouldNotBeCounted") : t("ui.chat.edited-files.openFilesInTheDesktopApp")}</p> : null}
+      {!complete || !canOpen ? <p className="px-2 py-1 text-xs text-muted-foreground">{!complete ? t("ui.chat.edited-files.statsIncomplete") : t("ui.chat.edited-files.openFilesInTheDesktopApp")}</p> : null}
       <Reveal>{error ? <Alert variant="destructive"><AlertDescription>{localizeMessage(error)}</AlertDescription></Alert> : null}</Reveal>
     </CardContent>
     {canUndo ? <UndoDialog open={!!dialog} items={dialog?.items ?? []} loading={dialog?.loading ?? false}

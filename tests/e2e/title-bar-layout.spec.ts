@@ -1,5 +1,6 @@
 import { test as base, expect, type Page } from "@playwright/test";
 import { openWorkspace } from "../helpers/workspace-entry";
+import { browserApi } from "../helpers/browser-api";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -153,4 +154,33 @@ test("the conversation's top bar still moves the window beside its title", async
   // The header opts out of the drag region, so it may only cover what it shows, not the row up to the search box.
   const [box, search] = await Promise.all([header.boundingBox(), page.locator(".command-search").boundingBox()]);
   expect(box!.x + box!.width).toBeLessThan(search!.x - 120);
+});
+
+test("a long conversation title keeps room to be read in a narrow window, can be read in full, and leaves the row to move the window", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  const long = "整理第三季度各区域销售数据并找出增长最快的三个产品线以及原因分析和下季度建议";
+  const chat = (await browserApi(page, `${app.origin}/api/conversations`, "POST", { title: long })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  const title = page.locator(".workspace-topbar .chat-title");
+  await expect(title).toBeVisible();
+  // One source, one shortening: the service's, the same in the top row and the conversation list.
+  const stored = chat.title as string;
+  expect(stored.startsWith(long.slice(0, 40))).toBe(true);
+  await expect(title.locator(".chat-title-text")).toHaveText(stored);
+  for (const width of [1280, 960, 900]) {
+    await page.setViewportSize({ width, height: 800 });
+    const text = (await title.locator(".chat-title-text").boundingBox())!;
+    // At least about seven characters stay readable.
+    expect(text.width, `${width}px`).toBeGreaterThanOrEqual(80);
+    const [header, search] = await Promise.all([page.locator(".workspace-topbar .chat-header").boundingBox(), page.locator(".command-search").boundingBox()]);
+    expect(header!.x + header!.width, `${width}px`).toBeLessThanOrEqual(search!.x);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  // Cut short, it can be read in full: the app's tooltip shows the whole title.
+  await title.locator(".chat-title-text").hover();
+  await expect(page.getByRole("tooltip")).toHaveText(stored);
+  // The full title is also available when opening the menu from the keyboard.
+  await title.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menu")).toContainText(stored);
 });

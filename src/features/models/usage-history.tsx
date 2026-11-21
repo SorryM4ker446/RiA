@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { SelectField, SelectOption } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 export type UsageRow = { id: string; source: string; estimatedUsd: number | null; modelId: string; modelProvider: string; mode: string; status: string; durationMs: number; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; costSource: string; fallback: boolean; errorCode: string | null; createdAt: string };
-export const sourceNames = (): Record<string, string> => ({ chat: t("lib.models.catalogMode.chat"), summary: t("ui.models.usage-history.historySummary"), scheduled: t("ui.models.usage-history.scheduledReview"), tool: t("ui.models.usage-history.toolSynthesis"), agent: t("ui.models.usage-history.subagents"), embedding: t("lib.models.catalogMode.embedding"), media: t("ui.models.usage-history.mediaGeneration"), unattributed: t("ui.models.usage-history.sourceNotRecorded") });
+export const sourceNames = (): Record<string, string> => ({ chat: t("lib.models.catalogMode.chat"), summary: t("ui.models.usage-history.historySummary"), scheduled: t("ui.models.usage-history.scheduledReview"), tool: t("ui.models.usage-history.internalTasks"), agent: t("ui.models.usage-history.subagents"), embedding: t("lib.models.catalogMode.embedding"), media: t("ui.models.usage-history.mediaGeneration"), unattributed: t("ui.models.usage-history.sourceNotRecorded") });
 const cost = (value: number | null) => value === null ? t("models.unknown") : `$${value.toFixed(6)}`;
 
 function UsageList({ rows }: { rows: UsageRow[] }) {

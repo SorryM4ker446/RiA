@@ -959,13 +959,14 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 /* Only as wide as what it holds: it opts out of the window's drag region, and stretched across the row it
    left the conversation's top bar impossible to drag the window by. */
 .chat-header { display: flex; width: fit-content; max-width: 100%; min-width: 0; align-items: center; gap: 8px; }
-.chat-title { display: inline-flex; min-width: 0; max-width: min(28rem, 100%); align-items: center; gap: 4px; margin-left: -8px; padding: 4px 6px 4px 8px; border-radius: var(--radius-control); font-size: 13px; font-weight: 600; letter-spacing: -0.006em; color: hsl(var(--foreground)); outline: none; }
+/* The title keeps room to be read (about seven characters) however narrow the row: what sits beside it gives way first. */
+.chat-title { display: inline-flex; flex: 0 1 auto; min-width: min(7.5em, 100%); max-width: min(28rem, 100%); align-items: center; gap: 4px; margin-left: -8px; padding: 4px 6px 4px 8px; border-radius: var(--radius-control); font-size: 13px; font-weight: 600; letter-spacing: -0.006em; color: hsl(var(--foreground)); outline: none; }
 .chat-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-title svg { width: 14px; height: 14px; flex-shrink: 0; color: hsl(var(--muted-foreground)); transition: rotate var(--dur-base) var(--ease-out); }
 .chat-title:hover, .chat-title[data-state="open"] { background: hsl(var(--foreground) / .06); }
 .chat-title[data-state="open"] svg { rotate: 180deg; }
 .chat-title:focus-visible, .chat-memory-off:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
-.chat-header-meta { min-width: 0; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.chat-header-meta { flex: 0 100 auto; min-width: 0; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: hsl(var(--muted-foreground)); }
 /* Memory off: a small tag, readable at a glance; clicking it opens the menu on the memory switch. */
 .chat-memory-off { display: inline-flex; height: 20px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 7px 0 6px; border-radius: 999px; font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); background: hsl(var(--foreground) / .06); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / .06); transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .chat-memory-off svg { width: 12px; height: 12px; }
@@ -1488,13 +1489,23 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .execution-disclosure > summary > svg { width: 14px; height: 14px; flex-shrink: 0; transition: transform var(--dur-base) var(--ease-out); }
 .execution-disclosure[open] > summary > svg { transform: rotate(90deg); }
 .execution-code { max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: var(--radius-inner); background: hsl(var(--muted) / .5); padding: 8px; font-family: var(--font-mono); font-size: 11px; line-height: 1.7; }
-.catalog-scroll { max-height: min(30rem, 65dvh); overflow-y: auto; overscroll-behavior-y: contain; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--background)); scrollbar-gutter: stable; }
+/* The catalog's results: held at full height while the catalog is read, then fitted to what they show (up to that
+   height, then scrolling), easing between sizes so the sections below glide instead of jumping. */
+.catalog-scroll { --catalog-frame-max: min(30rem, 65dvh); max-height: var(--catalog-frame-max); transition: height var(--dur-base) var(--ease-out); overflow-y: auto; overscroll-behavior-y: contain; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--background)); scrollbar-gutter: stable; }
+.catalog-scroll-state { display: grid; place-items: center; min-height: 9rem; }
+.catalog-scroll[data-state="loading"] .catalog-scroll-state { min-height: calc(var(--catalog-frame-max) - 2px); }
+.catalog-scroll-content { animation: overlay-in var(--dur-base) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .catalog-scroll { transition: none; } .catalog-scroll-content { animation: none; } }
 .catalog-scroll:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .catalog-row { animation: row-in var(--dur-base) var(--ease-out); transition: background-color var(--dur-fast) var(--ease-out); }
 .catalog-row:hover { background: hsl(var(--muted)); }
 .catalog-scroll-hint { padding: 16px; text-align: center; font-size: 12px; color: hsl(var(--muted-foreground)); }
 
 .models-section { scroll-margin-top: 1.5rem; }
+/* The last row's own padding is not added to the space before the next section's line, so the library
+   ends as far above it as the catalog starts below it, with rows or with the empty note. */
+.models-library-list { margin-bottom: -12px; }
+.models-library-empty { padding: 0; }
 /* Page sections sit apart by space and one hairline, not inside boxes. */
 .page-section + .page-section { border-top: 1px solid hsl(var(--border) / .55); padding-top: 28px; }
 /* Lists with columns: the list sets --cols, its header row and every data row lay out on that grid.
@@ -1593,6 +1604,10 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .settings-step-number { display: grid; width: 16px; height: 16px; flex-shrink: 0; place-items: center; border-radius: 50%; background: hsl(var(--foreground) / .08); color: hsl(var(--muted-foreground)); font-size: 11px; }
 .settings-field > [data-slot="field-content"], .settings-field > [data-slot="field-label"] { flex: 0 0 10rem; }
 .settings-field [data-slot="field-description"] { font-size: 12px; }
+/* A checkbox row: the box leads, and its title and explanation take the rest of the row instead of the label column. */
+.settings-field.settings-check-field { align-items: flex-start; gap: 10px; }
+.settings-field.settings-check-field > [role="checkbox"] { margin-top: 2px; }
+.settings-field.settings-check-field > [data-slot="field-content"] { flex: 1 1 auto; min-width: 0; }
 .settings-disclosure-trigger { display: flex; align-items: center; gap: 8px; min-height: 36px; border-radius: var(--radius-control); font-size: 13px; color: hsl(var(--muted-foreground)); list-style: none; }
 .settings-disclosure-trigger::-webkit-details-marker { display: none; }
 .settings-disclosure-trigger:hover { color: hsl(var(--foreground)); }
@@ -1697,6 +1712,10 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .command-palette[data-pinned]:not(:focus-within, :hover) > * { opacity: .55; }
 /* The title-bar search: centred over the content column, quiet until pointed at. */
 .command-search { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: flex; width: min(22rem, 44%); height: 26px; align-items: center; justify-content: center; gap: 6px; border-radius: 7px; padding: 0 8px; font-size: 12px; color: hsl(var(--muted-foreground)); background: hsl(var(--foreground) / .04); box-shadow: inset 0 0 0 1px hsl(var(--foreground) / .06); cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+/* The conversation's title ends before the search box centred in the same row, whichever inset the row has
+   (the margin covers the wider one, with the rail collapsed); without the box (narrow windows) it may use the row. */
+.workspace-topbar-slot { max-width: calc(50% - min(11rem, 22%) - 48px); }
+@media (max-width: 639px) { .workspace-topbar-slot { max-width: none; } }
 .command-search:hover { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .07); }
 .command-search:focus-visible { outline: none; box-shadow: inset 0 0 0 1px hsl(var(--ring)), 0 0 0 3px hsl(var(--ring) / .2); }
 .command-search-key { margin-left: 2px; font-family: var(--font-sans); font-size: 11px; color: hsl(var(--muted-foreground) / .75); }
@@ -1759,6 +1778,7 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
   .settings-readiness { grid-template-columns: 1fr; gap: 0; }
   .settings-field { flex-direction: column; align-items: stretch; }
   .settings-field > [data-slot="field-content"], .settings-field > [data-slot="field-label"] { flex-basis: auto; }
+  .settings-field.settings-check-field { flex-direction: row; }
   .workspace-content > main:not(.chat-workspace) { padding: 1.5rem 1rem; }
   .chat-dock { max-height: 55%; padding: .5rem .75rem .75rem; }
   .chat-welcome-description { font-size: 13px; }
@@ -1972,3 +1992,19 @@ html:not(.dark) :is(.workspace-nav-link[aria-current="page"], .sidebar-chat-row[
 .composer-queue-hint { padding: 0 10px; font-size: 11px; color: hsl(var(--muted-foreground)); }
 .composer-queue-held { color: hsl(var(--warning)); }
 
+/* The image viewer: the picture alone over a dimmed window, its controls in one bar at the top. */
+.image-viewer-overlay { position: fixed; inset: 0; z-index: 60; background: hsl(0 0% 4% / .82); animation: overlay-in var(--dur-fast) var(--ease-out); }
+.image-viewer { position: fixed; inset: 0; z-index: 61; display: flex; flex-direction: column; outline: none; }
+.image-viewer-toolbar { display: flex; align-self: center; align-items: center; gap: 2px; margin-top: 12px; padding: 4px; border-radius: var(--radius-card); background: hsl(var(--popover) / .92); color: hsl(var(--popover-foreground)); box-shadow: 0 1px 2px hsl(0 0% 0% / .2), 0 0 0 1px hsl(var(--border) / .6); max-width: calc(100% - 32px); flex-wrap: wrap; justify-content: center; }
+.image-viewer-scale { min-width: 3.25rem; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: hsl(var(--muted-foreground)); }
+.image-viewer-stage { position: relative; flex: 1; min-height: 0; margin: 12px 16px 16px; overflow: hidden; touch-action: none; user-select: none; }
+.image-viewer-stage[data-movable] { cursor: grab; }
+.image-viewer-stage[data-dragging] { cursor: grabbing; }
+.image-viewer-picture { position: absolute; left: 50%; top: 50%; max-width: none; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { .image-viewer-overlay { animation: none; } }
+
+/* A picture being made holds the room the picture will take (square, as tall as it will be at most), so it lands in place. */
+.chat-picture-pending { display: flex; width: 100%; aspect-ratio: 1; max-height: 420px; align-items: center; justify-content: center; gap: 8px; border-radius: var(--radius-card); background: hsl(var(--muted) / .6); color: hsl(var(--muted-foreground)); font-size: 13px; }
+.chat-picture-actions-space { height: 2rem; }
+.chat-picture-image { animation: overlay-in var(--dur-base) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .chat-picture-image { animation: none; } }

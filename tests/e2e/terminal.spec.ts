@@ -9,7 +9,7 @@ import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { configureOfflineModels } from "../helpers/model-fixture";
 import { browserApi, browserData } from "../helpers/browser-api";
-import { decodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
+import { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
 
 async function storedTerminalTools(page: Page, chatId: string) {
   const rows = await browserData(page, `/api/conversations/${chatId}/messages`);
@@ -545,4 +545,39 @@ test("a background command keeps running after the answer, stays live in its car
   await expect(dialog.getByRole("button", { name: "停止命令", exact: true })).toHaveCount(0);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   expect(errors).toEqual([]);
+});
+
+test("a reply's file-change card says when its count is incomplete, and never reads as zero changes", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  const chat = (await browserApi(page, "/api/conversations", "POST", { title: "变更统计" })).body.data;
+  const change = { path: "notes.txt", kind: "modified", before: { bytes: 4, lines: 1 }, after: { bytes: 9, lines: 2 } };
+  const states = [
+    { name: "complete-none", fileChanges: { complete: true, files: [] } },
+    { name: "complete-some", fileChanges: { complete: true, files: [change] } },
+    { name: "incomplete-none", fileChanges: { complete: false, files: [] } },
+    { name: "incomplete-some", fileChanges: { complete: false, files: [{ ...change, path: "draft.md" }] } },
+  ];
+  for (const [index, state] of states.entries()) {
+    await browserApi(page, `/api/conversations/${chat.id}/messages`, "POST", { role: "user", content: `统计 ${state.name}` });
+    const output = { id: `session-${index}`, grantId: "grant-fixture", command: "echo", cwd: app.folder, shell: "powershell", status: "completed", stdout: "", stderr: "", exitCode: 0, truncated: false,
+      startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), fileChanges: state.fileChanges };
+    const content = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: `完成 ${state.name}`, tools: [{ toolName: "runTerminalCommand", toolCallId: `call-${index}`, state: "output-available", input: { grantId: "grant-fixture", command: "echo" }, output }] });
+    expect((await browserApi(page, `/api/conversations/${chat.id}/messages`, "POST", { role: "assistant", content })).status).toBe(201);
+  }
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  const answer = (name: string) => page.locator('[data-message-role="assistant"]').filter({ hasText: `完成 ${name}` });
+  await expect(answer("incomplete-some")).toBeVisible();
+  const card = (name: string) => answer(name).getByRole("region", { name: "最近编辑的文件", exact: true });
+  // Complete, nothing changed: no card at all.
+  await expect(card("complete-none")).toHaveCount(0);
+  await expect(answer("complete-none")).not.toContainText("文件变更统计不完整");
+  // Complete with a change: the file, and no note.
+  await expect(card("complete-some")).toContainText("notes.txt");
+  await expect(card("complete-some")).not.toContainText("文件变更统计不完整");
+  // Incomplete, nothing confirmed: only the note, no list and no 0.
+  await expect(card("incomplete-none")).toHaveCount(0);
+  await expect(answer("incomplete-none").getByRole("status").filter({ hasText: "文件变更统计不完整" })).toBeVisible();
+  // Incomplete, with a confirmed change: the change is listed, and the note says the count is incomplete.
+  await expect(card("incomplete-some")).toContainText("draft.md");
+  await expect(card("incomplete-some")).toContainText("文件变更统计不完整");
 });

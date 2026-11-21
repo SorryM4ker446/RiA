@@ -36,13 +36,13 @@ async function inspect(page: Page, id: string) {
   await expect(detail).toContainText(id);
   return detail;
 }
-/** Regenerating and deleting sit in the detail's "more actions" menu, beside the download. */
+/** Showing the file and deleting it sit in the detail's "more actions" menu, beside the download. */
 async function detailAction(page: Page, detail: Locator, action: string) {
   await detail.getByRole("button", { name: "更多操作 媒体详情", exact: true }).click();
   await openMenu(page).getByRole("menuitem", { name: action, exact: true }).click();
 }
 
-test("media library shows real generation provenance, confirms regeneration and downloads private images", { tag: "@integration" }, async ({ page, app }, info) => {
+test("media library shows real generation provenance and the full prompt, and downloads private images", { tag: "@integration" }, async ({ page, app }, info) => {
   await register(page, app.origin);
   await configureOfflineModels(page, { image: "google/gemini-3.1-flash-image-preview" });
   const [input] = await upload(page);
@@ -61,19 +61,19 @@ test("media library shows real generation provenance, confirms regeneration and 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("media-library-narrow.png"), fullPage: true });
   await page.setViewportSize(viewport);
-  await detailAction(page, detail, "重新生成");
-  const dialog = page.getByRole("dialog", { name: "按原参数重新生成？" });
-  await expect(dialog).toContainText("可能产生费用");
-  await expect(dialog.getByRole("button", { name: "取消操作" })).toBeFocused();
-  await page.keyboard.press("Escape"); expect(app.providerCalls).toHaveLength(1);
-  await detailAction(page, detail, "重新生成");
-  const response = page.waitForResponse(response => response.url().endsWith(`/api/media/${id}/regenerate`));
-  await dialog.getByRole("button", { name: "确认重新生成" }).click();
-  const regenerated = await response; expect(regenerated.status()).toBe(201);
-  const newId = (await regenerated.json()).asset.assetId;
-  await expect(detail).toContainText(newId);
-  expect(newId).not.toBe(id); expect(app.providerCalls).toHaveLength(2);
-  expect(app.providerCalls[1].messages).toEqual(app.providerCalls[0].messages);
+  // The prompt is read here in full, and copied from here; the menu leads to the file instead of regenerating it.
+  await expect(detail.getByTestId("asset-prompt")).toHaveText("离线月光图片");
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await detail.getByRole("button", { name: "复制提示词", exact: true }).click();
+  await expect(page.getByText("已复制提示词")).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("离线月光图片");
+  await detail.getByRole("button", { name: "更多操作 媒体详情", exact: true }).click();
+  await expect(openMenu(page).getByRole("menuitem", { name: "重新生成", exact: true })).toHaveCount(0);
+  await openMenu(page).getByRole("menuitem", { name: "在资源管理器中打开", exact: true }).click();
+  // Outside the desktop app there is no file manager: it says so.
+  await expect(page.getByText("在 RiA 桌面应用中才能打开文件位置。").first()).toBeVisible();
+  expect(app.providerCalls).toHaveLength(1);
+  const newId = id;
   const pending = page.waitForEvent("download");
   await detail.getByRole("button", { name: "下载原文件" }).click();
   const download = await pending; expect(download.suggestedFilename()).toBe(`${newId}.png`);
@@ -126,10 +126,9 @@ test("media pagination and confirmed deletion preserve referenced inputs and upd
   await page.getByRole("button", { name: "加载更多资源" }).click();
   await expect(page.getByRole("article")).toHaveCount(29);
   let detail = await inspect(page, inputs[0].assetId);
-  // A referenced input can be neither regenerated nor deleted; its menu says so by disabling both.
+  // A referenced input cannot be deleted; its menu says so by disabling it.
   await detail.getByRole("button", { name: "更多操作 媒体详情", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "删除资源", exact: true })).toBeDisabled();
-  await expect(page.getByRole("menuitem", { name: "重新生成", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
   await detail.getByRole("button", { name: "关闭详情" }).click();
   detail = await inspect(page, generated.assetId);
@@ -166,4 +165,103 @@ test("media errors, forged requests and a missing credential never trigger unint
   // A reload without the credential keeps the workspace route and never falls
   // back to a login page, because there is none.
   await page.reload(); await expect(page).toHaveURL(`${app.origin}/media`);
+});
+
+/** A picture larger than the window, so it opens fitted and can be moved once shown at its own size. */
+async function uploadLarge(page: Page): Promise<{ assetId: string; url: string }> {
+  return page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 2400; canvas.height = 1600;
+    const context = canvas.getContext("2d")!;
+    const gradient = context.createLinearGradient(0, 0, 2400, 1600);
+    gradient.addColorStop(0, "#1d4ed8"); gradient.addColorStop(1, "#f59e0b");
+    context.fillStyle = gradient; context.fillRect(0, 0, 2400, 1600);
+    const blob = await new Promise<Blob>(resolve => canvas.toBlob(value => resolve(value!), "image/png"));
+    const form = new FormData();
+    form.append("files", blob, "large.png");
+    const response = await fetch("/api/media/upload", { method: "POST", body: form });
+    if (response.status !== 201) throw new Error("Fixture upload failed");
+    return (await response.json()).data[0];
+  });
+}
+const viewer = (page: Page) => page.locator(".image-viewer");
+const scaleOf = async (page: Page) => Number((await viewer(page).locator(".image-viewer-scale").textContent())!.replace("%", ""));
+
+test("a picture in the media detail opens in the viewer fitted to the window, zooms, moves when larger, and Esc returns to where it was opened", async ({ page, app }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await register(page, app.origin);
+  const large = await uploadLarge(page);
+  await library(page, app.origin);
+  const detail = await inspect(page, large.assetId);
+  const preview = detail.getByRole("img").first();
+  await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(2400);
+
+  await preview.dblclick();
+  await expect(viewer(page)).toBeVisible();
+  const picture = viewer(page).locator(".image-viewer-picture");
+  // The scale shows once the picture has loaded and been fitted.
+  await expect(viewer(page).locator(".image-viewer-scale")).toHaveText(/^\d+%$/);
+  await expect.poll(() => scaleOf(page)).toBeLessThan(100);
+  // Fitted: all of it shows, in proportion.
+  const fitted = (await picture.boundingBox())!;
+  expect(fitted.width / fitted.height).toBeCloseTo(1.5, 1);
+  expect(fitted.width).toBeLessThanOrEqual(1280);
+  expect(fitted.height).toBeLessThanOrEqual(860);
+  const fittedScale = await scaleOf(page);
+  await viewer(page).getByRole("button", { name: "放大", exact: true }).click();
+  await expect.poll(() => scaleOf(page)).toBeGreaterThan(fittedScale);
+  await viewer(page).getByRole("button", { name: "缩小", exact: true }).click();
+  await expect.poll(() => scaleOf(page)).toBe(fittedScale);
+  await viewer(page).getByRole("button", { name: "原始尺寸", exact: true }).click();
+  await expect.poll(() => scaleOf(page)).toBe(100);
+  expect((await picture.boundingBox())!.width).toBeCloseTo(2400, 0);
+  // Larger than the window now: dragging moves it.
+  const before = (await picture.boundingBox())!;
+  await page.mouse.move(640, 500); await page.mouse.down(); await page.mouse.move(440, 400, { steps: 5 }); await page.mouse.up();
+  const after = (await picture.boundingBox())!;
+  expect(after.x).toBeLessThan(before.x - 100);
+  expect(after.y).toBeLessThan(before.y - 50);
+  // The keyboard too: back to fitted.
+  await page.keyboard.press("0");
+  await expect.poll(() => scaleOf(page)).toBe(fittedScale);
+  await expect(viewer(page).getByRole("button", { name: "适应窗口", exact: true })).toHaveAttribute("aria-pressed", "true");
+  // Narrow, its controls still fit.
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.keyboard.press("Escape");
+  await expect(viewer(page)).toBeHidden();
+  await expect(detail.getByRole("button", { name: "查看大图", exact: true })).toBeFocused();
+  // Its own button opens it as well.
+  await detail.getByRole("button", { name: "查看大图", exact: true }).press("Enter");
+  await expect(viewer(page)).toBeVisible();
+  await viewer(page).getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(detail.getByRole("button", { name: "查看大图", exact: true })).toBeFocused();
+});
+
+test("showing a media file in the file manager points the desktop app at that asset's own file, for images, videos and attachments", async ({ page, app }) => {
+  await page.addInitScript(() => {
+    // The settings the shell reads at start, and the one call this test is about.
+    const settings = { hasOpenrouterApiKey: true, hasDeepseekApiKey: false, encryptionAvailable: true, outboundProxyUrl: "", openrouterSiteName: "RiA", openrouterHttpReferer: "", closeBehaviour: "quit", globalHotkey: "Control+Shift+Space", windowBounds: null };
+    Object.defineProperty(window, "riaDesktop", { value: { getSettings: async () => settings, getRuntimeInfo: async () => ({ appVersion: "0.1.2", packaged: false, dataDirectory: "fixture/data", mediaDirectory: "fixture/media", logFile: "fixture/log" }), revealPath: async (target: string) => { (window as unknown as { revealed: string[] }).revealed = [...((window as unknown as { revealed?: string[] }).revealed ?? []), target]; return { revealed: true }; } } });
+  });
+  await register(page, app.origin);
+  await configureOfflineModels(page, { image: "google/gemini-3.1-flash-image-preview", video: "bytedance/seedance-2.0" });
+  const [attachment] = await upload(page);
+  const image = (await browserApi(page, "/api/image", "POST", { prompt: "资源管理器里的图片" })).body.asset.assetId as string;
+  const video = (await browserApi(page, "/api/video", "POST", { prompt: "资源管理器里的视频", aspectRatio: "16:9", duration: 5, fps: 24 })).body.asset.assetId as string;
+  await library(page, app.origin);
+  for (const [id, extension] of [[image, "png"], [video, "mp4"], [attachment.assetId, "png"]] as const) {
+    const detail = await inspect(page, id);
+    await detailAction(page, detail, "在资源管理器中打开");
+    await expect.poll(() => page.evaluate(() => (window as unknown as { revealed?: string[] }).revealed?.at(-1) ?? "")).toMatch(new RegExp(`[\\\\/]${id}\\.${extension}$`));
+    await detail.getByRole("button", { name: "关闭详情" }).click();
+  }
+  // The file is gone from disk: the service says so, and nothing is shown.
+  const shown = await page.evaluate(() => (window as unknown as { revealed: string[] }).revealed.length);
+  await page.route(`**/api/media/${image}/locate`, route => route.fulfill({ status: 404, json: { error: { code: "NOT_FOUND", message: "媒体文件不可用。", details: null } } }));
+  const detail = await inspect(page, image);
+  await detailAction(page, detail, "在资源管理器中打开");
+  await expect(page.getByRole("alert").filter({ hasText: "媒体文件不可用" }).first()).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { revealed: string[] }).revealed.length)).toBe(shown);
 });
