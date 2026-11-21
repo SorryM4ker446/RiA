@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ModelMessage } from "ai";
+import type { UIMessage } from "ai";
+import { buildChatContext } from "@/lib/chat/context";
 
 const { createStepContext } = await import("@/lib/chat/step-context");
 const { contextBudget } = await import("@/lib/models/context-budget");
@@ -38,7 +40,7 @@ test("the same lines of the same file version read three times reach the model o
     assert.ok(sent.get(id)!.length < 600, `${id} is a short note`);
     const note = JSON.parse(sent.get(id)!);
     assert.deepEqual([note.unchanged, note.path, note.hash, note.startLine, note.endLine, note.nextLine], [true, "src/big.ts", "0123456789abcdef", 1, 400, 401]);
-    assert.match(note.note, /read-1/);
+    assert.equal(note.toolCallId, "read-1");
   }
   // About a third of what the three whole copies took.
   const whole = JSON.stringify(conversation).length, now = JSON.stringify(prepared.messages).length;
@@ -61,4 +63,37 @@ test("a read of changed content, other lines or another folder is sent whole, an
   const sent = results(folded.messages).sent;
   assert.equal(sent.has("a"), false);
   assert.match(sent.get("b")!, /row 400 x{150}/);
+});
+
+test("the history window counts references and terminal previews before deciding which turns fit", () => {
+  const text = (id: string, role: "user" | "assistant", text: string): UIMessage => ({ id, role, parts: [{ type: "text", text }] });
+  const output = { grantId: "folder", path: "test.txt", hash: "a", startLine: 1, lines: [{ line: 1, text: "example ".repeat(850) }], nextLine: null };
+  const evidence = [1, 2, 3].flatMap(id => [
+    { type: "tool-readProjectFile", toolCallId: `read-${id}`, state: "output-available", input: {}, output },
+    { type: "step-start" },
+  ]) as UIMessage["parts"];
+  const messages = [text("constraint", "user", "Keep this earlier constraint."), text("ack", "assistant", "Understood."), text("read", "user", "Read that file."),
+    { id: "evidence", role: "assistant" as const, parts: [...evidence, { type: "text" as const, text: "Read it." }] }, text("follow-up", "user", "Use the evidence.")];
+  assert.deepEqual(buildChatContext(messages, { maxTokens: 4_000, refillRatio: .3, toolRecords: { keepPreviousToolTurn: true } }).messages.map(message => message.id), messages.map(message => message.id));
+  const eligible = messages.slice(0, 3).concat({ id: "terminal", role: "assistant", parts: [
+    { type: "tool-checkTerminalCommand", toolCallId: "check", state: "output-available", input: {}, output: { newStdout: "x".repeat(48 * 1024), newStderr: "", status: "completed" } },
+  ] }, messages.at(-1)!);
+  assert.deepEqual(buildChatContext(eligible, { maxTokens: 6_000, toolRecords: { keepPreviousToolTurn: true } }).messages.map(message => message.id), eligible.map(message => message.id));
+});
+
+test("the same version and range of a document uses one body, but a different range or a folded source does not", async () => {
+  const document = { documentId: "doc", contentHash: "revision-1", offset: 0, nextOffset: 24, text: "the same document excerpt", pages: [{ pageNumber: 1, offset: 0 }] };
+  const doc = (id: string, value = document): ModelMessage[] => [
+    { role: "assistant", content: [{ type: "tool-call", toolName: "readDocument", toolCallId: id, input: {} }] },
+    { role: "tool", content: [{ type: "tool-result", toolName: "readDocument", toolCallId: id, output: { type: "json", value } }] },
+  ];
+  const messages: ModelMessage[] = [{ role: "user", content: "Read the report." }, ...doc("first"), ...doc("again"), ...doc("later", { ...document, offset: 25 }), ...doc("changed", { ...document, contentHash: "revision-2" }), ...doc("reparsed", { ...document, text: "The same document excerpt" })];
+  const sent = results((await manager().prepare(messages)).messages).sent;
+  assert.match(sent.get("first")!, /the same document excerpt/);
+  assert.equal(JSON.parse(sent.get("again")!).toolCallId, "first");
+  assert.match(sent.get("later")!, /the same document excerpt/);
+  assert.match(sent.get("changed")!, /the same document excerpt/);
+  assert.match(sent.get("reparsed")!, /The same document excerpt/);
+  const folded = results((await manager({ state: "Read the report", calls: ["first"] }).prepare(messages)).messages).sent;
+  assert.match(folded.get("again")!, /the same document excerpt/);
 });

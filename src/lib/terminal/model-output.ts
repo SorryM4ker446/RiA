@@ -11,7 +11,10 @@ import { TERMINAL_LIMITS } from "./schema";
  * request.
  */
 
-type Streams = { stdout?: unknown; stderr?: unknown; log?: { id?: unknown } | null };
+type Streams = {
+  stdout?: unknown; stderr?: unknown; newStdout?: unknown; newStderr?: unknown;
+  log?: { id?: unknown } | null; truncated?: boolean; omittedBytes?: number; modelOutputOmitted?: boolean;
+};
 
 /** The first `bytes` of text, without splitting a character. */
 function head(text: string, bytes: number) {
@@ -42,12 +45,20 @@ function excerpt(text: string, budget: number, logId: string | null) {
 /** The command result as the model reads it. */
 export function terminalResultForModel<T>(result: T): T {
   if (!result || typeof result !== "object") return result;
-  const { stdout, stderr, log } = result as Streams;
+  const view = result as Streams;
+  const update = "newStdout" in view;
+  const outField = update ? "newStdout" : "stdout", errField = update ? "newStderr" : "stderr";
+  const stdout = view[outField], stderr = view[errField];
   const out = typeof stdout === "string" ? stdout : "", err = typeof stderr === "string" ? stderr : "";
   const outBytes = Buffer.byteLength(out), errBytes = Buffer.byteLength(err), budget = TERMINAL_LIMITS.modelOutputBytes;
-  if (outBytes + errBytes <= budget) return result;
+  const lost = view.modelOutputOmitted || (update ? Boolean(view.omittedBytes) : view.truncated);
+  if (outBytes + errBytes <= budget) return lost ? { ...result, modelOutputOmitted: true } : result;
   // Shared between the streams by size, so a short error stream is shown whole beside a long log.
   const errBudget = Math.min(errBytes, Math.max(Math.floor(budget * errBytes / (outBytes + errBytes)), Math.min(errBytes, 2048)));
-  const logId = typeof log?.id === "string" ? log.id : null;
-  return { ...result, stdout: excerpt(out, budget - errBudget, logId), stderr: excerpt(err, errBudget, logId) };
+  const logId = typeof view.log?.id === "string" ? view.log.id : null;
+  return { ...result, [outField]: excerpt(out, budget - errBudget, logId), [errField]: excerpt(err, errBudget, logId), modelOutputOmitted: true };
+}
+
+export function isTerminalOutputTool(name: string) {
+  return name === "runTerminalCommand" || name === "checkTerminalCommand" || name === "stopTerminalCommand";
 }

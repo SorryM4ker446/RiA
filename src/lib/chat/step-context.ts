@@ -4,6 +4,7 @@ import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { REQUEST_CONTEXT_HEADER, type ContextReport } from "./context-report";
 import { historicalToolText, historyTextExcerpt, shownExcerptCharacters, summaryRecordCharacters, TOOL_HISTORY_CHARACTERS } from "./tool-history";
+import { readEvidence, readEvidenceReference } from "./tool-read-evidence";
 
 type ToolResult = Extract<Extract<ModelMessage, { role: "tool" }>["content"][number], { type: "tool-result" }>;
 /** A result as the record forms read it, whichever way its output is encoded. */
@@ -54,32 +55,6 @@ export function withoutToolRecords(messages: ModelMessage[]): ModelMessage[] {
 function inCallOrder(content: Extract<ModelMessage, { role: "tool" }>["content"], order: ReadonlyMap<string, number>) {
   const rank = (part: (typeof content)[number]) => part.type === "tool-result" ? order.get(part.toolCallId) ?? Infinity : Infinity;
   return content.sort((a, b) => rank(a) - rank(b));
-}
-
-/**
- * What a file read showed: the folder, the file's version (its content hash)
- * and the lines. Two reads with the same identity returned the same text; null
- * for anything else, or a read that failed.
- */
-function fileReadIdentity(part: ToolResult): string | null {
-  if (part.toolName !== "readProjectFile" || resultState(part) !== "output-available") return null;
-  const value = resultValue(part) as { grantId?: unknown; path?: unknown; hash?: unknown; startLine?: unknown; lines?: unknown; nextLine?: unknown } | null;
-  if (!value || typeof value.grantId !== "string" || typeof value.path !== "string" || typeof value.hash !== "string" || !Array.isArray(value.lines) || !value.lines.length) return null;
-  const lines = value.lines as { line?: unknown }[];
-  return JSON.stringify([value.grantId, value.path, value.hash, value.startLine, lines[0]?.line, lines.at(-1)?.line, lines.length, value.nextLine ?? null]);
-}
-
-/**
- * Said in place of a file read the model already has, word for word, earlier in what it is sent: the
- * same lines of the same version of the file. It keeps the call paired with a result, and says where
- * the text is.
- */
-function repeatedReadNote(part: ToolResult, firstCallId: string) {
-  const value = resultValue(part) as { path: string; hash: string; lines: { line: number }[]; nextLine?: number | null };
-  return JSON.stringify({
-    unchanged: true, path: value.path, hash: value.hash, startLine: value.lines[0].line, endLine: value.lines.at(-1)!.line, nextLine: value.nextLine ?? null,
-    note: `Same lines of the same file version as the earlier readProjectFile result of call ${firstCallId}; the file has not changed since that read. Use that result.`,
-  });
 }
 
 function completedBlock(block: ModelMessage[]) {
@@ -190,20 +165,21 @@ export function createStepContext(params: {
     ? anchor.tokens + (prepared.length > anchor.messages ? estimateContextTokens(prepared.slice(anchor.messages), report.usageCalibration) : 0)
     : estimate(prepared);
   /**
-   * File reads the model is sent twice: each later result with the same identity as an earlier one
-   * still shown whole (not folded into the summary, not cut to an excerpt), by call id, with the
+   * Reads the model is sent twice: each later result with the same identity as an earlier one
+   * still shown whole (not folded into the summary, not cut to an excerpt), with the
    * note said instead. A read of another version, other lines or another folder is a read of its own.
    */
   function repeatedReads(messages: ModelMessage[], omitted: ReadonlySet<number>) {
-    const first = new Map<string, string>(), notes = new Map<string, string>();
+    const first = new Map<string, string>(), notes = new Map<ToolResult, string>();
     messages.forEach((message, index) => {
       if (omitted.has(index) || typeof message.content === "string") return;
       for (const part of message.content) {
         if (part.type !== "tool-result" || coveredCalls.has(part.toolCallId) || excerpts.has(part.toolCallId)) continue;
-        const identity = fileReadIdentity(part);
-        if (!identity) continue;
-        const earlier = first.get(identity);
-        if (earlier) notes.set(part.toolCallId, repeatedReadNote(part, earlier)); else first.set(identity, part.toolCallId);
+        if (part.output.type !== "json") continue;
+        const evidence = readEvidence(part.toolName, part.output.value);
+        if (!evidence) continue;
+        const earlier = first.get(evidence.key);
+        if (earlier) notes.set(part, readEvidenceReference(evidence, earlier)); else first.set(evidence.key, part.toolCallId);
       }
     });
     return notes;
@@ -211,7 +187,7 @@ export function createStepContext(params: {
   function render(messages: ModelMessage[], summary = state, omitted = covered, options: { whole?: boolean } = {}) {
     const callOrder = new Map<string, number>();
     for (const { content } of messages) if (typeof content !== "string") for (const part of content) if (part.type === "tool-call" && !callOrder.has(part.toolCallId)) callOrder.set(part.toolCallId, callOrder.size);
-    const repeats = options.whole ? new Map<string, string>() : repeatedReads(messages, omitted);
+    const repeats = options.whole ? new Map<ToolResult, string>() : repeatedReads(messages, omitted);
     const retained = messages.flatMap((message, index): ModelMessage[] => {
       if (omitted.has(index)) return [];
       if (typeof message.content === "string") return [message];
@@ -219,7 +195,7 @@ export function createStepContext(params: {
         if (part.type === "tool-call" || part.type === "tool-result" || part.type === "tool-approval-request") return !coveredCalls.has(part.toolCallId);
         if (part.type === "tool-approval-response") return !coveredApprovals.has(part.approvalId);
         return true;
-      }).map(part => options.whole ? part : part.type === "tool-result" && repeats.has(part.toolCallId) ? { ...part, output: { type: "text" as const, value: repeats.get(part.toolCallId)! } }
+      }).map(part => options.whole ? part : part.type === "tool-result" && repeats.has(part) ? { ...part, output: { type: "text" as const, value: repeats.get(part)! } }
         : part.type === "tool-result" && excerpts.has(part.toolCallId) ? { ...part, output: { type: "text" as const, value: excerpts.get(part.toolCallId)! } }
         : part.type === "tool-call" && inputExcerpts.has(part.toolCallId) ? { ...part, input: inputExcerpts.get(part.toolCallId) } : part);
       if (message.role === "tool") inCallOrder(content as Extract<ModelMessage, { role: "tool" }>["content"], callOrder);
@@ -258,7 +234,7 @@ export function createStepContext(params: {
       for (const part of content) {
         if (part.type === "tool-call") inputs.set(part.toolCallId, part.input);
         if (part.type !== "tool-result" || part.output.type === "execution-denied" || excerpts.has(part.toolCallId) || coveredCalls.has(part.toolCallId)) continue;
-        if (repeats.has(part.toolCallId)) continue;
+        if (repeats.has(part)) continue;
         // What arrived since the model last spoke is what it is about to read.
         if (index >= latestAssistant && (!waiting.size || waiting.has(part.toolCallId))) continue;
         const value = resultValue(part), input = JSON.stringify(inputs.get(part.toolCallId)) ?? "";

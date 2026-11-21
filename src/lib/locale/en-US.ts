@@ -275,6 +275,8 @@ export const enUS = {
   "chat.run.status.failed": "Failed",
   "chat.run.status.cancelled": "Cancelled",
   "chat.run.stopReason": "Stop reason",
+  "chat.terminalEvidenceUnverified": "The command exited with some output omitted. The available logs do not establish success, so the result is still unverified.",
+  "chat.terminalEvidenceReportedFailure": "The command exited with code 0, but the retrieved log reports a failure.",
   "chat.run.steps": "Steps",
   "chat.run.empty": "No tools were called in this turn.",
   "chat.run.stop": "Stop subsequent steps",

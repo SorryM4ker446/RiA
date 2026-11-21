@@ -59,9 +59,10 @@ async function readOutcome(response: Response, signal: AbortSignal): Promise<Una
   const read = (event: string) => {
     for (const line of event.split("\n")) {
       if (!line.startsWith("data:")) continue;
-      let chunk: { type?: unknown; errorText?: unknown };
+      let chunk: { type?: unknown; errorText?: unknown; messageMetadata?: { terminalEvidenceUnverified?: boolean } };
       try { chunk = JSON.parse(line.slice(5)); } catch { continue; }
       if (chunk.type === "error") errorCode ??= errorCodeOf(chunk.errorText);
+      else if (chunk.type === "finish" && chunk.messageMetadata?.terminalEvidenceUnverified === true) errorCode ??= "TERMINAL_EVIDENCE_INCOMPLETE";
       else if (chunk.type === "tool-approval-request") asked = true;
       else if (chunk.type === "abort") aborted = true;
     }

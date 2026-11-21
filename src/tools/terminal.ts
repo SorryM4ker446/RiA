@@ -8,6 +8,7 @@ import { readTerminalLog, readTerminalLogInputSchema, type ReadTerminalLogInput 
 import { jsonSchema, zodSchema } from "ai";
 
 const modelInput = terminalInputSchema.omit({ binding: true, autoReview: true });
+export const terminalModelOutput = ({ output }: { output: unknown }) => ({ type: "json" as const, value: terminalResultForModel(output) as never });
 
 export const terminalTool: ToolDescriptor<TerminalInput, TerminalCommandResult> = {
   id: "runTerminalCommand",
@@ -28,7 +29,7 @@ export const terminalTool: ToolDescriptor<TerminalInput, TerminalCommandResult> 
   } }),
   bindForApproval: bindTerminalApproval,
   // Long output reaches the model as its beginning and end, with the log to read the rest.
-  modelOutput: async output => ({ type: "json", value: terminalResultForModel(output) as never }),
+  modelOutput: async output => terminalModelOutput({ output }),
   reviewAction: input => ({ kind: "command", command: input.command, cwd: input.binding?.cwd ?? "", ...(input.runInBackground ? { runInBackground: true } : {}) }),
   execute: async ({ input, signal, runId, unattended, chatId }) => {
     const { command: _command, ...result } = await runTerminalCommand(input, signal, runId, { unattended, chatId });
@@ -64,6 +65,7 @@ export const checkTerminalCommandTool: ToolDescriptor<CheckTerminalCommandInput,
   modeSupport: ["chat"],
   surface: { category: "workspace", user: null, template: { follows: "runTerminalCommand" } },
   inputSchema: checkTerminalCommandInputSchema,
+  modelOutput: async output => terminalModelOutput({ output }),
   execute: async ({ input, signal, chatId }) => checkTerminalCommand(input.id, chatId, input.waitSeconds ?? 0, signal),
 };
 
@@ -78,5 +80,6 @@ export const stopTerminalCommandTool: ToolDescriptor<StopTerminalCommandInput, T
   modeSupport: ["chat"],
   surface: { category: "workspace", user: null, template: { follows: "runTerminalCommand" } },
   inputSchema: stopTerminalCommandInputSchema,
+  modelOutput: async output => terminalModelOutput({ output }),
   execute: async ({ input, signal, chatId }) => stopTerminalCommand(input.id, chatId, signal),
 };

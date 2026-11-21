@@ -179,6 +179,8 @@ export const chatMessages = {
   "chat.run.status.failed": "已失败",
   "chat.run.status.cancelled": "已取消",
   "chat.run.stopReason": "停止原因",
+  "chat.terminalEvidenceUnverified": "命令已退出，但输出有省略，现有日志证据不足以确认成功。结果仍待核验。",
+  "chat.terminalEvidenceReportedFailure": "命令返回了退出码 0，但回读的日志报告了失败。",
   "chat.run.steps": "步骤",
   "chat.run.empty": "这一轮没有调用工具。",
   "chat.run.stop": "停止后续步骤",

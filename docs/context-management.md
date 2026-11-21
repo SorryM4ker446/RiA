@@ -56,8 +56,15 @@ keeps matching. A read of changed content, other lines or another folder is sent
 whole, and so is one whose earlier copy is no longer whole in what is sent (folded
 into the summary or cut to an excerpt) (`src/lib/chat/step-context.ts`). In the same
 spirit `readDocument` sends its excerpt once: `pages` says which page each part of it
-comes from and the document offset where that part starts, which is also where a
-read can continue.
+comes from and the document offset where that part starts. Later reads of the same
+document version, range, text and page positions use a reference to the earlier call.
+Window selection and background compaction estimate the model-facing tool output,
+including terminal previews and repeated-read references. Each candidate window counts
+its own first complete copy before charging for references to it.
+The budget follows the model-facing form, as Codex does when it limits tool output before
+counting retained history. Claude Code's troubleshooting guide likewise uses bounded reads
+to keep large tool results from immediately refilling a compacted window.
+[Codex context history](https://github.com/openai/codex/blob/main/codex-rs/core/src/context_manager/history.rs) · [Claude Code compaction troubleshooting](https://code.claude.com/docs/en/troubleshooting#auto-compaction-stops-with-a-thrashing-error)
 
 ## Request budgets
 

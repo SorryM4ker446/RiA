@@ -38,6 +38,7 @@ import { UNSEEN_IMAGE_REPLY_INSTRUCTION } from "@/lib/prompts";
 import { pendingSubagentReports } from "@/lib/agents/subagents";
 import { activeToolIds } from "@/tools/deferred";
 import { createTurnFailureReader } from "./tool-failure";
+import { createTerminalEvidenceReview } from "./terminal-evidence";
 /** OpenRouter passes along reasoning it cannot show as encrypted details. */
 function hasEncryptedReasoning(metadata: unknown) {
   const details = (metadata as { openrouter?: { reasoning_details?: unknown } } | undefined)?.openrouter?.reasoning_details;
@@ -189,6 +190,7 @@ async function openChatAnswer(params: ChatAnswer) {
   }
   let generationFailed = false;
   let contextLimitFailed = false;
+  let terminalEvidenceMissing = false;
   let skippedTool: string | undefined;
   // An approval resume continues the same turn, so its reasoning time adds up.
   const earlierThinking = input.isApprovalResume ? thinkingRecordSchema.safeParse((messages.at(-1)?.metadata as { thinking?: unknown } | undefined)?.thinking) : null;
@@ -196,6 +198,37 @@ async function openChatAnswer(params: ChatAnswer) {
   const runId = params.runId ?? null;
   let runIds = [...new Set([...(conversation.previousRunIds ?? []), ...(runId ? [runId] : [])])];
   const stepCeiling = await runStepCeiling(runId);
+  const terminalReview = createTerminalEvidenceReview();
+  if (input.isApprovalResume) for (const part of messages.at(-1)?.parts ?? []) {
+    if (part.type.startsWith("tool-") && "state" in part && part.state === "output-available") terminalReview.observe(part.type.slice(5), part.output);
+  }
+
+  // Keep unverified prose out of the stream and the saved answer. The model may still use tools to obtain evidence.
+  const guardTerminalAnswer = () => {
+    let pendingAtStart = false, awaitingApproval = false, incomplete = false;
+    return new TransformStream<TextStreamPart<ToolSet>, TextStreamPart<ToolSet>>({
+      transform(chunk, controller) {
+        if (chunk.type === "start-step") {
+          pendingAtStart = terminalReview.pending().length > 0;
+          awaitingApproval = false;
+        }
+        if (chunk.type === "tool-result" && !chunk.preliminary) terminalReview.observe(chunk.toolName, chunk.output, false);
+        if (chunk.type === "tool-approval-request") awaitingApproval = true;
+        if (chunk.type === "abort" || chunk.type === "error") incomplete = true;
+        if (pendingAtStart && (chunk.type === "text-start" || chunk.type === "text-delta" || chunk.type === "text-end")) return;
+        if (chunk.type === "finish" && !awaitingApproval && !incomplete && !signal.aborted && chunk.finishReason !== "error" && terminalReview.pending().length) {
+          terminalEvidenceMissing = true;
+          const id = generateId();
+          const matches = terminalReview.matchedLines();
+          lastStepText = [t(terminalReview.reportedFailure() ? "chat.terminalEvidenceReportedFailure" : "chat.terminalEvidenceUnverified"), ...matches.map(line => `> ${line}`)].join("\n\n");
+          controller.enqueue({ type: "text-start", id });
+          controller.enqueue({ type: "text-delta", id, text: lastStepText });
+          controller.enqueue({ type: "text-end", id });
+        }
+        controller.enqueue(chunk);
+      },
+    });
+  };
 
   /**
    * Close the run, and account for what it spent. Both are best-effort: a
@@ -336,6 +369,7 @@ async function openChatAnswer(params: ChatAnswer) {
       // The approval reviewer reads the actual conversation before app reminders are appended.
       reviewMessages = stepMessages;
       activeSystem = hasUnseenGeneratedImage(stepMessages) ? `${systemPrompt}\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}` : systemPrompt;
+      if (terminalReview.hasCompleted()) activeSystem += "\nA command exited with code zero but its output was abbreviated. Before concluding it succeeded, use readTerminalLog to find a test or build outcome and review the rest of both non-empty streams. A filtered search or a log without a result summary does not establish success. If you cannot verify the result, leave it unverified.";
       stepContext.setSystem(activeSystem);
       // Tools loaded on demand in an earlier step are offered, in full, from this one.
       if (tools) {
@@ -344,6 +378,12 @@ async function openChatAnswer(params: ChatAnswer) {
         stepContext.setTools(sent, sent?.filter(tool => externalToolIdPattern.test(tool.name)));
       }
       const prepared = await stepContext.prepare(stepMessages);
+      if (terminalReview.hasCompleted()) {
+        terminalReview.clearVisibleEvidence();
+        for (const message of prepared.messages) if (message.role === "tool") for (const part of message.content) {
+          if (part.type === "tool-result" && part.toolName === "readTerminalLog" && part.output.type === "json") terminalReview.observe(part.toolName, part.output.value);
+        }
+      }
       thinkingClock.stepStarted();
       // Background sub-agents that ended since the last step: their reports join the turn here and stay
       // with every later step of it. A later turn reads them with checkSubagents.
@@ -378,6 +418,7 @@ async function openChatAnswer(params: ChatAnswer) {
     // as steady typing rather than jumps; faster than a model writes, so it
     // does not hold the answer back.
     experimental_transform: [
+      guardTerminalAnswer,
       smoothStream({ delayInMs: 6, chunking: new Intl.Segmenter(undefined, { granularity: "word" }) }),
       endsWhenStopped(signal),
     ],
@@ -420,17 +461,17 @@ async function openChatAnswer(params: ChatAnswer) {
     onError: (error) => streamError(readFailure(error)),
     originalMessages: messages,
     messageMetadata: ({ part }) => part.type === "start" ? { ...answeredAt(), runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}` }
-      : part.type === "finish" ? { ...answeredAt(), runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(skippedTool ? { skippedTool } : {}), ...(thinkingClock.report() ? { thinking: thinkingClock.report() } : {}) } : undefined,
+      : part.type === "finish" ? { ...answeredAt(), runId: params.runId ?? undefined, runIds, modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`, contextBudget: contextReport(), ...(terminalEvidenceMissing ? { terminalEvidenceUnverified: true } : {}), ...(skippedTool ? { skippedTool } : {}), ...(thinkingClock.report() ? { thinking: thinkingClock.report() } : {}) } : undefined,
     onFinish: async ({ responseMessage, isAborted }) => {
       let persistenceFailed = false;
       try {
         await persistChatResponse({
           // Ended by a stop, whether or not the stream got as far as saying so.
-          input, conversation, responseMessage, isAborted: isAborted || signal.aborted, generationFailed, skippedTool, thinking: thinkingClock.report(),
+          input, conversation, responseMessage, isAborted: isAborted || signal.aborted, generationFailed: generationFailed || terminalEvidenceMissing, skippedTool, thinking: thinkingClock.report(),
           unavailableTools: params.unavailableTools, scheduled,
           runId: params.runId,
           contextReport: contextReport(),
-            heldReports: !generationFailed && !isAborted && !signal.aborted && !awaitsDecision(responseMessage) ? heldReports : [],
+            heldReports: !generationFailed && !terminalEvidenceMissing && !isAborted && !signal.aborted && !awaitsDecision(responseMessage) ? heldReports : [],
         });
       } catch (error) {
         persistenceFailed = true;
@@ -440,9 +481,9 @@ async function openChatAnswer(params: ChatAnswer) {
         await recordContextCalibration(activeRef, stepContext.observedRatio()).catch(() => console.error("chat.calibration.record.failed"));
         await closeRun({
           finishReason: completedTurn?.outcome.finishReason ?? null,
-          generationFailed: generationFailed || persistenceFailed,
+          generationFailed: generationFailed || terminalEvidenceMissing || persistenceFailed,
           aborted: isAborted || signal.aborted,
-        }, completedTurn?.cost ?? null, persistenceFailed && !isAborted && !signal.aborted ? "persistence-error" : contextLimitFailed ? "context-limit" : undefined);
+        }, completedTurn?.cost ?? null, persistenceFailed && !isAborted && !signal.aborted ? "persistence-error" : contextLimitFailed ? "context-limit" : terminalEvidenceMissing ? "terminal-evidence-incomplete" : undefined);
       }
       await foldWrites;
       // Runs after the answer is saved, and nothing here waits for it.
