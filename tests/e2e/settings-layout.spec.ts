@@ -66,10 +66,10 @@ test("compact settings preserve unsaved fields across tabs and keep connection o
   const secureDns = page.getByRole("checkbox", { name: "代理虚拟地址回查", exact: true });
   await expect(secureDns).not.toBeChecked();
   await expect(secureDns).toHaveAccessibleDescription(/只解析到代理虚拟地址.*Cloudflare.*默认关闭/);
-  // The box leads its row, and the explanation uses the row's width rather than a narrow label column.
+  // The full-width text leads and the checkbox sits at the end of the row.
   const hint = page.locator("#web-fake-ip-doh-hint");
   const [box, hintBox, rowBox] = await Promise.all([secureDns.boundingBox(), hint.boundingBox(), secureDns.locator("xpath=..").boundingBox()]);
-  expect(box!.x).toBeLessThan(hintBox!.x);
+  expect(hintBox!.x + hintBox!.width).toBeLessThan(box!.x);
   expect(hintBox!.width).toBeGreaterThan(rowBox!.width * 0.8);
   // Kept to a line or two in a wide window.
   expect(hintBox!.height).toBeLessThanOrEqual(2 * 20 + 2);
@@ -94,8 +94,8 @@ test("compact settings preserve unsaved fields across tabs and keep connection o
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     // Narrow too, the box stays beside its title, and the explanation wraps inside the row.
     const [narrowBox, narrowHint] = await Promise.all([secureDns.boundingBox(), hint.boundingBox()]);
-    expect(narrowBox!.x).toBeLessThan(narrowHint!.x);
-    expect(narrowHint!.x + narrowHint!.width).toBeLessThanOrEqual(width);
+    expect(narrowHint!.x + narrowHint!.width).toBeLessThan(narrowBox!.x);
+    expect(narrowBox!.x + narrowBox!.width).toBeLessThanOrEqual(width);
     await page.screenshot({ path: info.outputPath(`settings-${width}.png`), fullPage: true });
   }
 });
