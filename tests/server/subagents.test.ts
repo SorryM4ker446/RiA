@@ -207,7 +207,9 @@ test("a sub-agent's summaries draw on the turn's compaction allowance", async t 
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-subagent-")));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const grant = await createGrant({ path: root });
-  // A small window, and commands that print a lot: the sub-agent has to fold its earlier work.
+  // A small window, and commands that print a lot: the sub-agent has to fold its earlier work. Planned from
+  // the window itself, not from a scale earlier tests' mocked usage left behind.
+  await db.modelContextCalibration.deleteMany({});
   const preferences = await getModelPreferences();
   await saveModelPreferences({ ...preferences, contextLimits: { ...preferences.contextLimits, [`${CHAT_MODEL_REF.providerId}:${CHAT_MODEL_REF.modelId}`]: { contextLength: 16000, maxOutputTokens: 1000 } } });
   const command = process.platform === "win32" ? "[Console]::WriteLine('evidence ' * 4000)" : "printf 'evidence %.0s' $(seq 4000)";
@@ -333,9 +335,131 @@ test("one still marked running after a restart reads as interrupted, and is told
   const [view] = await subagents.listSubagents(chat.id);
   assert.equal(view.status, "interrupted");
   assert.equal(await subagents.hasReportToContinue(chat.id), false, "an interrupted one does not wake the conversation");
-  const taken = await subagents.takeSubagentReports(chat.id);
-  assert.match(taken.text, /Before the restart \(sa_00000000beef\): was cut off when RiA restarted/);
-  assert.equal((await subagents.takeSubagentReports(chat.id)).text, "", "told once");
+  const pending = await subagents.pendingSubagentReports(chat.id);
+  assert.match(pending.text, /Before the restart \(sa_00000000beef\): was cut off when RiA restarted/);
+  assert.deepEqual((await subagents.pendingSubagentReports(chat.id)).ids, pending.ids, "still waiting until what carries it is saved");
+  await subagents.settleHeldSubagentReports(pending.ids);
+  assert.equal((await subagents.pendingSubagentReports(chat.id)).text, "", "told once");
+});
+
+const approvalPending = async (chatId: string) => (await import("@/lib/chat/unattended")).awaitsApproval(chatId);
+const declineRoute = await import("@/app/api/conversations/[id]/messages/[messageId]/decline/route");
+const userRows = (chatId: string) => db.message.findMany({ where: { chatId, role: "user" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+const idle = (chatId: string) => until(async () => !liveTurns.isTurnLive(chatId), "the conversation to be idle");
+
+test("a background report arriving after an approval waits without repeatedly waking the conversation", { timeout: 5000 }, async t => {
+  continuation.watchSubagentReports();
+  const finish = gate();
+  const seen = script(t, [
+    { tool: { name: "runSubagent", input: background } },
+    { tool: { name: "saveKnowledgeEntry", input: { key: "Policy", value: "Ask the travel desk" } } },
+    { text: "The travel desk handles it." },
+  ], async () => { await finish.wait(); return { text: "The desk handles the booking." }; });
+  const chat = await createChat({ title: "Approval before report" });
+  await db.chat.update({ where: { id: chat.id }, data: { approvalRule: "ask" } });
+  await ask(chat.id, "Work in the background and ask before saving the policy.");
+  assert.equal(await approvalPending(chat.id), true);
+  const finished = new Promise<void>(resolve => { const off = subagents.onSubagentFinished(() => { off(); resolve(); }); });
+  finish.open();
+  await finished;
+  assert.equal(await continuation.settleSubagentWork(chat.id, AbortSignal.timeout(1500)), null);
+  assert.equal(seen.parent.length, 2);
+  assert.equal((await userRows(chat.id)).length, 1);
+  assert.equal(await subagents.hasReportToContinue(chat.id), true);
+});
+
+test("a report taken by a step before an approval is asked for waits with it, and goes once when the approval is declined", async t => {
+  continuation.watchSubagentReports();
+  const done = new Promise<void>(resolve => { const off = subagents.onSubagentFinished(() => { off(); resolve(); }); });
+  const seen = script(t, [
+    { tool: { name: "runSubagent", input: background } },
+    // This step waits for the report, which joins the next one; that one asks for an approval.
+    { tool: { name: "checkSubagents", input: {} }, before: () => done },
+    { tool: { name: "saveKnowledgeEntry", input: { key: "Travel policy", value: "Hotels are booked through the travel desk." } } },
+    { text: "The sub-agent found the travel desk rule." },
+  ], () => ({ text: "Hotels go through the travel desk." }));
+  const chat = await createChat({ title: "Approval in between" });
+  await db.chat.update({ where: { id: chat.id }, data: { approvalRule: "ask" } });
+  await ask(chat.id, "Look into it in the background and save what you find.");
+  assert.match(seen.parent[2].prompt, /Hotels go through the travel desk/);
+  assert.equal(await approvalPending(chat.id), true);
+  const [row] = await db.subagentRun.findMany({ where: { chatId: chat.id } });
+  assert.equal(row.delivered, false, "a turn that stops for an approval has not handed it over");
+  // Nothing wakes the conversation while it waits for the user.
+  await continuation.settleSubagentWork(chat.id, new AbortController().signal);
+  assert.equal((await userRows(chat.id)).length, 1);
+
+  const answer = await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" } });
+  const declined = await declineRoute.POST(new NextRequest(`http://localhost/api/conversations/${chat.id}/messages/${answer.id}/decline`, {
+    method: "POST", headers: { host: "localhost", cookie: localAccessCookie() },
+  }), { params: Promise.resolve({ id: chat.id, messageId: answer.id }) });
+  assert.equal(declined.status, 200, await declined.clone().text());
+  const notice = await until(async () => (await userRows(chat.id))[1], "the turn woken once the approval was declined");
+  assert.deepEqual(decodePersistedUserMessage(notice.content)?.notice, { kind: "subagents", titles: ["Look in the background"] });
+  await idle(chat.id);
+  await continuation.settleSubagentWork(chat.id, new AbortController().signal);
+  assert.equal((await db.subagentRun.findUniqueOrThrow({ where: { id: row.id } })).delivered, true);
+  assert.equal((await userRows(chat.id)).length, 2, "given once");
+  assert.match(seen.parent[3].prompt, /Hotels go through the travel desk/);
+});
+
+test("a woken turn whose notice cannot be saved leaves the report for the next chance, where it goes once", async t => {
+  continuation.watchSubagentReports();
+  const hold = gate();
+  const seen = script(t, [{ tool: { name: "runSubagent", input: background } }, { text: "Started it." }, { text: "Here is what it found." }], async () => { await hold.wait(); return { text: "Hotels go through the travel desk." }; });
+  const chat = await createChat({ title: "Save fails" });
+  await ask(chat.id, "Look into it in the background.");
+  await db.$executeRawUnsafe(`CREATE TRIGGER "test_refuse_delivery" BEFORE UPDATE OF "delivered" ON "subagent_runs" BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`);
+  try {
+    hold.open();
+    const [row] = await db.subagentRun.findMany({ where: { chatId: chat.id } });
+    await ended(row.id);
+    assert.equal((await continuation.settleSubagentWork(chat.id, new AbortController().signal))?.status, "failed");
+  } finally { await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "test_refuse_delivery"`); }
+  assert.equal((await userRows(chat.id)).length, 1, "no notice was saved");
+  assert.equal((await db.subagentRun.findFirstOrThrow({ where: { chatId: chat.id } })).delivered, false);
+
+  // The user's next message is the next chance: its step takes the report, and nothing else wakes for it.
+  await ask(chat.id, "Anything back yet?");
+  assert.match(seen.parent[2].prompt, /Automatic notice from RiA[\s\S]*Hotels go through the travel desk/);
+  await idle(chat.id);
+  await continuation.settleSubagentWork(chat.id, new AbortController().signal);
+  assert.equal((await db.subagentRun.findFirstOrThrow({ where: { chatId: chat.id } })).delivered, true);
+  assert.equal((await userRows(chat.id)).length, 2, "no woken notice besides");
+});
+
+test("reports that end one after another each wake once, and two readers never both hand over the same report", async t => {
+  continuation.watchSubagentReports();
+  const first = gate(), second = gate();
+  const seen = script(t, [
+    { tools: [{ name: "runSubagent", input: { ...background, title: "First", task: "Check the first policy." } }, { name: "runSubagent", input: { ...background, title: "Second", task: "Check the second policy." } }] },
+    { text: "Both started." }, { text: "The first is back." }, { text: "The second is back." },
+  ], async (_call, options) => {
+    if (JSON.stringify(options.prompt).includes("first policy")) { await first.wait(); return { text: "First report." }; }
+    await second.wait(); return { text: "Second report." };
+  });
+  const chat = await createChat({ title: "One after another" });
+  await ask(chat.id, "Check both in the background.");
+  first.open();
+  await until(async () => (await userRows(chat.id)).length === 2, "the first woken turn");
+  await idle(chat.id);
+  second.open();
+  await until(async () => (await userRows(chat.id)).length === 3, "the second woken turn");
+  await idle(chat.id);
+  await continuation.settleSubagentWork(chat.id, new AbortController().signal);
+  const notices = (await userRows(chat.id)).slice(1).map(row => decodePersistedUserMessage(row.content)?.notice?.titles);
+  assert.deepEqual(notices, [["First"], ["Second"]]);
+  assert.ok(!seen.parent[2].prompt.includes("Second report."));
+  assert.match(seen.parent[3].prompt, /Second report\./);
+  assert.ok((await db.subagentRun.findMany({ where: { chatId: chat.id } })).every(row => row.delivered));
+
+  // Two readers holding the same report: the second to save is refused, and nothing it would save stands.
+  await db.subagentRun.create({ data: { id: "sa_0000000000aa", chatId: chat.id, toolCallId: "call-x", title: "Raced", task: "Anything", background: true, status: "done", report: "Raced report.", finishedAt: new Date() } });
+  const held = await subagents.pendingSubagentReports(chat.id);
+  assert.deepEqual(held.ids, ["sa_0000000000aa"]);
+  const results = await Promise.allSettled([0, 1].map(() => db.$transaction(tx => subagents.deliverSubagentReports(tx, held.ids))));
+  assert.deepEqual(results.map(result => result.status).sort(), ["fulfilled", "rejected"]);
+  assert.ok(results.some(result => result.status === "rejected" && result.reason instanceof subagents.ReportsAlreadyDelivered));
 });
 
 test("a task's run waits for its background sub-agents and the turns their reports wake", async t => {

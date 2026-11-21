@@ -71,7 +71,7 @@ export function resultConversations(topics: LegacyTopics, results: LegacyResults
   return results.filter(isFinishedResult).map(result => {
     const chatId = randomUUID();
     return {
-      chat: { id: chatId, title: `${names.get(result.topicId) ?? ""} · ${result.title}`.slice(0, 200), approvalRule, createdAt: result.createdAt, updatedAt: result.updatedAt, lastMessageAt: result.updatedAt },
+      chat: { id: chatId, title: `${names.get(result.topicId) ?? ""} · ${result.title}`.slice(0, 200), titleSource: "named", approvalRule, createdAt: result.createdAt, updatedAt: result.updatedAt, lastMessageAt: result.updatedAt },
       messages: [
         { id: randomUUID(), chatId, role: "user" as const, content: result.metadata.brief || result.title, status: "success" as const, createdAt: result.createdAt },
         { id: randomUUID(), chatId, role: "assistant" as const, content: links(result.content!), status: "success" as const, createdAt: result.updatedAt },

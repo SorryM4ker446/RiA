@@ -4,6 +4,7 @@ import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
 import { declineToolApprovals } from "@/lib/chat/store";
 import { settleAnsweredApprovals } from "@/lib/scheduler/runner";
+import { wakeForSubagentReports } from "@/lib/agents/subagent-continuation";
 import { t } from "@/lib/locale";
 
 type Params = {
@@ -18,6 +19,8 @@ async function POSTHandler(req: NextRequest, context: Params) {
     const toolCallIds = await declineToolApprovals(conversationId, messageId, t("chat.messages.approvalRejectedReason"));
     // A task waiting on this request is no longer waiting; bookkeeping must not undo the refusal.
     await settleAnsweredApprovals(conversationId).catch(() => console.error("task.approval.settle_failed"));
+    // Background sub-agent reports held back while the approval was pending can go on now.
+    wakeForSubagentReports(conversationId);
     return Response.json({ data: { toolCallIds } });
   } catch (error) {
     console.error("/api/conversations/[id]/messages/[messageId]/decline POST error", normalizeApiError(error).code);

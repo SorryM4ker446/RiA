@@ -246,12 +246,21 @@ export function useChatState() {
    * request had not reached it, or it already ended) does the page stop alone.
    * Stopping abandons the request, not the question: the message is in the
    * conversation, and what is in the message box stays where it is.
+   *
+   * Both the request and the page's own stop are bound to the turn shown when
+   * stop was pressed, in the conversation it was pressed in: if that turn ended
+   * meanwhile and another began (sent again here, or from another window), or
+   * the user moved to another conversation, nothing else is stopped.
    */
   const onStop = useCallback(() => {
     if (!isPending) return;
     const chatId = activeChatIdRef.current;
-    if (chatId && chatIsAnswering(sessionRef.current.chat)) {
-      void chatApi.stopTurn(chatId).then(stopped => { if (!stopped) stopRef.current(); }).catch(() => stopRef.current());
+    const target = sessionRef.current;
+    if (chatId && chatIsAnswering(target.chat)) {
+      const binding = target.turnBinding();
+      const stopHere = () => { target.stopReading(binding); };
+      if (binding.turnId) void chatApi.stopTurn(chatId, binding).then(stopped => { if (!stopped) stopHere(); }).catch(stopHere);
+      else stopHere();
     } else stopRef.current();
   }, [isPending]);
 
@@ -264,7 +273,8 @@ export function useChatState() {
    */
   async function onSubmit(event?: FormEvent<HTMLFormElement>, queued?: QueuedMessage) {
     event?.preventDefault();
-    if (isPending || isDocumentScopeSaving || !isConversationReady) return;
+    // A picture still being added from the conversation belongs to this message: it waits for it.
+    if (isPending || isDocumentScopeSaving || !isConversationReady || (!queued && attachingImageKey)) return;
     setInputNotice(null);
     const source = session;
     const typed = queued ? queued.text : draft.text;

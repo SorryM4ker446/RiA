@@ -13,9 +13,11 @@ import { runTaskAgent, type NotRun } from "@/lib/agents/task";
  * stop of its own here, apart from the turn's: its card can stop it alone.
  *
  * A background sub-agent outlives the step that started it, so its report is
- * kept until the model has been given it ("delivered"): before the next step of
- * a turn that is still going, by checkSubagents, or in a turn started for it
- * once the conversation is idle (subagent-continuation.ts).
+ * kept until the model has been given it ("delivered"): by a turn still going,
+ * which takes it before its next step and counts it given once its answer is
+ * saved, by checkSubagents, or in a turn started for it once the conversation
+ * is idle, whose notice is saved together with the mark
+ * (subagent-continuation.ts).
  *
  * Stopping a turn of the conversation stops all of its sub-agents. The registry
  * lives as long as the service process: a record still marked running that this
@@ -181,11 +183,10 @@ export async function listSubagents(chatId: string): Promise<SubagentView[]> {
 }
 
 /** One sub-agent of a conversation, or null. Reading a finished one's report gives it to the model. */
-export async function readSubagent(chatId: string, id: string, options: { deliver?: boolean } = {}): Promise<SubagentView | null> {
+export async function readSubagent(chatId: string, id: string): Promise<SubagentView | null> {
   await settleInterrupted(chatId);
   const row = await db.subagentRun.findFirst({ where: { id, chatId } });
   if (!row) return null;
-  if (options.deliver && row.status !== "running" && !row.delivered) await db.subagentRun.update({ where: { id }, data: { delivered: true } });
   return view(row);
 }
 
@@ -194,21 +195,50 @@ export async function hasReportToContinue(chatId: string): Promise<boolean> {
   return (await db.subagentRun.count({ where: { chatId, background: true, delivered: false, status: { in: ["done", "failed"] } } })) > 0;
 }
 
+export type PendingReports = { ids: string[]; text: string; titles: string[] };
+
 /**
  * The reports of the conversation's background sub-agents that have ended since
- * the model last heard, which this takes: it marks them delivered. Empty when
- * there are none.
+ * the model last heard, without taking them: they count as given only once the
+ * conversation has saved what carries them (deliverSubagentReports), so a turn
+ * that fails, is stopped or stops for an approval leaves them for the next one.
+ * except: reports this turn already holds. Empty when there are none.
  */
-export async function takeSubagentReports(chatId: string): Promise<{ text: string; titles: string[] }> {
+export async function pendingSubagentReports(chatId: string, except: Iterable<string> = []): Promise<PendingReports> {
   await settleInterrupted(chatId);
-  const rows = await db.subagentRun.findMany({ where: { chatId, background: true, delivered: false, status: { not: "running" } }, orderBy: { finishedAt: "asc" } });
-  if (!rows.length) return { text: "", titles: [] };
-  // Taken once: a row another reader marked first is left to that reader.
-  const taken: Row[] = [];
-  for (const row of rows) if ((await db.subagentRun.updateMany({ where: { id: row.id, delivered: false }, data: { delivered: true } })).count) taken.push(row);
-  if (!taken.length) return { text: "", titles: [] };
+  const held = new Set(except);
+  const rows = (await db.subagentRun.findMany({ where: { chatId, background: true, delivered: false, status: { not: "running" } }, orderBy: { finishedAt: "asc" } }))
+    .filter(row => !held.has(row.id));
+  if (!rows.length) return { ids: [], text: "", titles: [] };
   const running = [...registry.live.values()].filter(live => live.chatId === chatId && live.background).length;
-  return { text: formatReports(taken.map(view), running), titles: taken.map(row => row.title) };
+  return { ids: rows.map(row => row.id), text: formatReports(rows.map(view), running), titles: rows.map(row => row.title) };
+}
+
+/** Another reader saved these reports into the conversation first. */
+export class ReportsAlreadyDelivered extends Error {
+  constructor() { super("Sub-agent reports were already given to the conversation"); this.name = "ReportsAlreadyDelivered"; }
+}
+
+/**
+ * Marks reports as given to the model, inside the transaction that saves what
+ * carries them, each once: when any of them was marked by another reader
+ * first, nothing is marked and the save is refused, so a report is never
+ * delivered twice.
+ */
+export async function deliverSubagentReports(client: Pick<Prisma.TransactionClient, "subagentRun">, ids: string[]) {
+  if (!ids.length) return;
+  const marked = await client.subagentRun.updateMany({ where: { id: { in: ids }, delivered: false }, data: { delivered: true } });
+  if (marked.count !== new Set(ids).size) throw new ReportsAlreadyDelivered();
+}
+
+/** Marks reports a turn held as given, once its answer is saved; ones another reader saved first stay theirs. */
+export async function settleHeldSubagentReports(ids: string[], client: Pick<Prisma.TransactionClient, "subagentRun"> = db) {
+  if (ids.length) await client.subagentRun.updateMany({ where: { id: { in: ids }, delivered: false }, data: { delivered: true } });
+}
+
+/** How many of these reports the model has not been given yet. */
+export async function undeliveredSubagentReports(ids: string[]): Promise<number> {
+  return ids.length ? db.subagentRun.count({ where: { id: { in: ids }, delivered: false } }) : 0;
 }
 
 const STATUS_LINE: Record<SubagentStatus, string> = {

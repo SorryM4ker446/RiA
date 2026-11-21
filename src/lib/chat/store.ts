@@ -3,11 +3,11 @@ import { MessageRole, MessageStatus, type Message, type Prisma } from "@prisma/c
 import { randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import { db } from "@/db";
-import { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage, truncateTitle } from "@/lib/ai/ui-message";
+import { decodePersistedAssistantToolMessage, decodePersistedUserMessage, encodePersistedAssistantToolMessage, placeholderTitle, truncateTitle } from "@/lib/ai/ui-message";
 import { ApiError } from "@/lib/server/api-error";
 import { migrateMessageMedia, prepareMessageMedia, replaceMessageMedia } from "@/lib/media/messages";
 import { pageResult, type PageOptions } from "@/lib/server/pagination";
-import { deleteConversations, updateConversation } from "@/lib/conversations/mutations";
+import { deleteConversations } from "@/lib/conversations/mutations";
 import { resolveAssistant } from "@/lib/assistants/store";
 import { announceConversationsChanged } from "@/lib/conversations/events";
 
@@ -54,7 +54,12 @@ export async function getChat(chatId: string) {
   return db.chat.findFirst({ where: { id: chatId } });
 }
 
-export async function createChat(params: { chatId?: string; title?: string; assistantTemplateId?: string; ephemeral?: boolean }) {
+/**
+ * titleSource: "auto" for the placeholder made from the first message, which a model-written title may
+ * replace, "manual" for a name someone gave. A conversation with no title of its own yet ("New Chat" or
+ * its template's name) is "auto"; any other given title is kept ("named").
+ */
+export async function createChat(params: { chatId?: string; title?: string; assistantTemplateId?: string; ephemeral?: boolean; titleSource?: "auto" | "manual" }) {
   const { chatId, title } = params;
 
   if (chatId) {
@@ -71,6 +76,7 @@ export async function createChat(params: { chatId?: string; title?: string; assi
       ...(chatId ? { id: chatId } : {}),
       ...(params.ephemeral === undefined ? {} : { ephemeral: params.ephemeral }),
       title: truncateTitle(title ?? assistant?.name ?? "New Chat"),
+      titleSource: params.titleSource ?? (title === undefined ? "auto" : "named"),
       lastMessageAt: new Date(),
     },
   });
@@ -85,11 +91,6 @@ export async function deleteChat(chatId: string) {
   await deleteConversations([chatId]);
 
   return true;
-}
-
-export async function updateChatTitle(chatId: string, title: string) {
-  if (!await getChat(chatId)) return null;
-  return updateConversation(chatId, { title });
 }
 
 export async function listChatMessagePage(chatId: string, options: PageOptions) {
@@ -116,12 +117,16 @@ export async function saveChatMessage(params: {
   status?: MessageStatus;
   clientMessageId?: string;
   updateExisting?: boolean;
+  /** Other writes that stand or fall with this message, in the same transaction. */
+  alongside?: (client: Prisma.TransactionClient) => Promise<unknown>;
 }) {
-  const { chatId, role, content, status = "success", clientMessageId, updateExisting = false } = params;
+  const { chatId, role, content, status = "success", clientMessageId, updateExisting = false, alongside } = params;
   const normalizedClientMessageId = clientMessageId?.trim() ? clientMessageId.trim() : undefined;
   const chat = await db.chat.findUnique({ where: { id: chatId }, select: { id: true } });
   if (!chat) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
   const prepared = await prepareMessageMedia(content);
+  const userMessage = role === "user" ? decodePersistedUserMessage(content) : null;
+  const titleSeed = role === "user" && !userMessage?.notice ? (userMessage?.text ?? content).trim() : "";
   const data = {
     chatId, role, content: prepared.content, status,
     ...(normalizedClientMessageId ? { clientMessageId: normalizedClientMessageId } : {}),
@@ -134,7 +139,7 @@ export async function saveChatMessage(params: {
       })
     : client.message.create({ data });
 
-  if (updateExisting && prepared.assetIds.length === 0) {
+  if (updateExisting && prepared.assetIds.length === 0 && !alongside && !titleSeed) {
     // Approval continuations carry complete scripts. These writes need no
     // JavaScript read between queries, so keep them atomic in an engine-side
     // batch instead of expiring an interactive transaction during serialization.
@@ -165,8 +170,16 @@ export async function saveChatMessage(params: {
 
   const saved = await db.$transaction(async (tx) => {
     if (updateExisting && normalizedClientMessageId) for (const statement of rewriteStatements(tx, chatId, normalizedClientMessageId)) await statement;
+    // Read and set the placeholder under the same transaction as the first message.
+    if (titleSeed) {
+      await tx.chat.updateMany({
+        where: { id: chatId, titleSource: "auto", title: { in: ["New Chat", "新会话", "Untitled"] }, messages: { none: { role: "user" } } },
+        data: { title: placeholderTitle(titleSeed) },
+      });
+    }
     const message = await writeMessage(tx);
     if (message.content === prepared.content) await replaceMessageMedia(tx, message.id, prepared);
+    await alongside?.(tx);
     await tx.chat.update({ where: { id: chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });
@@ -307,6 +320,7 @@ export async function saveRegeneratedResponse(params: {
   userMessageId: string;
   content: string;
   clientMessageId: string;
+  alongside?: (client: Prisma.TransactionClient) => Promise<void>;
 }) {
   const { snapshot } = params;
   // A regenerated answer may have made pictures too; it refers to them as any answer does.
@@ -340,6 +354,7 @@ export async function saveRegeneratedResponse(params: {
       clientMessageId: params.clientMessageId,
     } });
     if (prepared.assetIds.length) await replaceMessageMedia(tx, message.id, prepared);
+    await params.alongside?.(tx);
     await tx.chat.update({ where: { id: snapshot.chatId }, data: { lastMessageAt: new Date() } });
     return message;
   });

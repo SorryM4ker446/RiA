@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { isTurnLive, onTurnEvent, stopTurn } from "@/lib/chat/live-turns";
 import { awaitsApproval, runUnattendedTurn, type UnattendedOutcome } from "@/lib/chat/unattended";
-import { hasReportToContinue, hasRunningBackgroundSubagents, onSubagentFinished, stopChatSubagents, takeSubagentReports } from "@/lib/agents/subagents";
+import { hasReportToContinue, hasRunningBackgroundSubagents, onSubagentFinished, pendingSubagentReports, stopChatSubagents, undeliveredSubagentReports } from "@/lib/agents/subagents";
 
 /*
  * What happens to a background sub-agent's report once the turn that started it
@@ -11,21 +11,28 @@ import { hasReportToContinue, hasRunningBackgroundSubagents, onSubagentFinished,
  * when a report arrives with no turn running, or when a turn ends with one waiting.
  *
  * It does not act while the conversation waits for the user to approve
- * something, since a new turn would pass that request by; the reports go with
- * the next request instead. Nor after a turn the user stopped, which stops the
- * sub-agents too, or one that failed.
+ * something, since a new turn would pass that request by; the reports stay
+ * until the approval is answered (the turn that resumes takes them) or
+ * declined (wakeForSubagentReports). Nor after a turn the user stopped, which
+ * stops the sub-agents too, or one that failed.
+ *
+ * A report is given to the model once: it is marked delivered in the same
+ * write that saves the message or answer carrying it, so a turn that fails
+ * before that leaves it for the next chance, and two wakes never both send it.
  */
 
 type State = {
   watching: boolean;
   /** Conversations a woken turn is being started or run for. */
   waking: Set<string>;
+  /** Events that arrived while a wake was checking persisted state. */
+  recheck: Set<string>;
   /** Woken whenever a conversation's sub-agent work may have settled. */
   waiters: Map<string, Set<() => void>>;
   /** How the last woken turn of a conversation went, for a task waiting on it. */
   lastOutcome: Map<string, UnattendedOutcome>;
 };
-const state: State = ((globalThis as { __riaSubagentWake?: State }).__riaSubagentWake ??= { watching: false, waking: new Set(), waiters: new Map(), lastOutcome: new Map() });
+const state: State = ((globalThis as { __riaSubagentWake?: State }).__riaSubagentWake ??= { watching: false, waking: new Set(), recheck: new Set(), waiters: new Map(), lastOutcome: new Map() });
 
 function wakeWaiters(chatId: string) {
   const waiting = state.waiters.get(chatId);
@@ -49,31 +56,50 @@ export function watchSubagentReports() {
   });
 }
 
+/**
+ * Wakes the conversation for reports left waiting, if it is idle and nothing
+ * asks the user first: for a state change that lets it go on without a turn of
+ * its own, such as the user declining a pending approval.
+ */
+export function wakeForSubagentReports(chatId: string) {
+  watchSubagentReports();
+  void wakeIfDue(chatId);
+}
+
 /** The service starting a turn of the conversation with the reports waiting for it, if it is idle and there are any. */
 async function wakeIfDue(chatId: string): Promise<void> {
-  // The turn running now, or the one being woken, ends by looking again.
-  if (state.waking.has(chatId) || isTurnLive(chatId)) return;
+  if (state.waking.has(chatId)) {
+    state.recheck.add(chatId);
+    return;
+  }
+  // The live turn takes the reports at its next step or wakes them when it ends.
+  if (isTurnLive(chatId)) return;
   state.waking.add(chatId);
-  let failed = false;
+  let delivered = false;
   try {
     if (await awaitsApproval(chatId) || !(await hasReportToContinue(chatId))) return;
-    const reports = await takeSubagentReports(chatId);
+    const reports = await pendingSubagentReports(chatId);
     if (!reports.text) return;
     // A task's conversation is one nobody is watching: its woken turn runs as the task's would.
     const task = await db.scheduledJob.findFirst({ where: { chatId }, select: { id: true } });
+    // The reports count as given only once the notice carrying them is saved, in the same write.
     const outcome = await runUnattendedTurn({
       chatId, text: reports.text, signal: new AbortController().signal, source: task ? "task" : "chat", callSource: task ? "scheduled" : "chat",
       notice: { kind: "subagents", titles: reports.titles.slice(0, 50).map(title => title.slice(0, 80)) },
+      deliverSubagents: reports.ids,
     });
     state.lastOutcome.set(chatId, outcome);
+    // None of them saved (the turn could not start, its message could not be written, or an approval
+    // came first): they wait for the next request or the next change that lets the conversation go
+    // on, rather than being tried again at once. Some given by another reader first: the rest go now.
+    delivered = outcome.status === "succeeded" && await undeliveredSubagentReports(reports.ids) < reports.ids.length;
   } catch {
-    failed = true;
     console.error("subagent.wake.failed");
   } finally {
+    const recheck = state.recheck.delete(chatId);
     state.waking.delete(chatId);
-    // A report that came in while that turn was ending would otherwise wait for the next one. One that
-    // could not be woken for stays for the next request rather than being tried again at once.
-    if (!failed && await hasReportToContinue(chatId).catch(() => false) && !isTurnLive(chatId)) void wakeIfDue(chatId);
+    // Wait for a fresh event when approval blocks the wake or the write failed.
+    if (recheck || delivered) void wakeIfDue(chatId);
     else wakeWaiters(chatId);
   }
 }

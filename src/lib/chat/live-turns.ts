@@ -37,8 +37,11 @@ export type TurnEvent =
   | { type: "turn-finished"; chatId: string; source: TurnSource; outcome: TurnOutcome; errorCode?: string };
 
 type LiveTurn = {
+  id: string;
   chatId: string;
   source: TurnSource;
+  /** The last message of the request that started it (the user's message, or the answer an approval resumes). */
+  requestMessageId: string | null;
   controller: AbortController;
   headers: Headers | null;
   /** What the answer has said so far, as sent: server-sent events, in order. */
@@ -49,6 +52,7 @@ type LiveTurn = {
   pendingNotices: SlotNotice[];
   queued: boolean;
   done: boolean;
+  finished: Set<() => void>;
   /** Readers waiting for the next chunk, or for the end. */
   waiting: Set<() => void>;
 };
@@ -102,13 +106,12 @@ export function liveTurnIds(): string[] {
 
 /** Resolves once no turn is running in this conversation. */
 export function waitForTurnEnd(chatId: string, signal?: AbortSignal): Promise<void> {
-  if (!isTurnLive(chatId)) return Promise.resolve();
+  const turn = registry.turns.get(chatId);
+  if (!turn || turn.done) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
-    const off = onTurnEvent(event => {
-      if (event.type !== "turn-finished" || event.chatId !== chatId || isTurnLive(chatId)) return;
-      off(); signal?.removeEventListener("abort", abort); resolve();
-    });
-    const abort = () => { off(); reject(signal!.reason); };
+    const end = () => { turn.finished.delete(end); signal?.removeEventListener("abort", abort); resolve(); };
+    const abort = () => { turn.finished.delete(end); reject(signal!.reason); };
+    turn.finished.add(end);
     if (signal?.aborted) abort(); else signal?.addEventListener("abort", abort, { once: true });
   });
 }
@@ -152,7 +155,7 @@ function errorCodeOf(errorText: unknown): string {
 }
 
 /** A reader of the turn from its first chunk, following it to its end. Leaving early leaves the turn running. */
-function follow(turn: LiveTurn): ReadableStream<Uint8Array> {
+function follow(turn: LiveTurn, identify = false): ReadableStream<Uint8Array> {
   let index = 0;
   let cancelled = false;
   let wake: (() => void) | null = null;
@@ -160,6 +163,9 @@ function follow(turn: LiveTurn): ReadableStream<Uint8Array> {
     // A reader that joins late gets what was said so far in one piece, merged,
     // and then each piece as it comes.
     start(controller) {
+      if (identify && turn.headers?.has("x-vercel-ai-ui-message-stream")) {
+        controller.enqueue(sse({ type: "data-turn-identity", data: turn.id, transient: true }));
+      }
       if (turn.chunks.length > 1) {
         index = turn.chunks.length;
         controller.enqueue(compactBacklog(turn.chunks.slice(0, index)));
@@ -222,10 +228,13 @@ export async function holdTurn(chatId: string, start: (signal: AbortSignal) => P
   outer?: AbortSignal;
   /** Runs when the turn has ended and before anyone is told, so what they read then includes it. */
   settle?: (chatId: string, outcome: TurnOutcome) => Promise<void>;
+  /** The last message of the request starting it, by which a stop can name this turn. */
+  requestMessageId?: string | null;
+  turnId?: string;
 }): Promise<Response> {
   if (isTurnLive(chatId)) throw new ApiError({ code: "CONFLICT", message: t("server.conversation.stillAnswering") });
   const controller = new AbortController();
-  const turn: LiveTurn = { chatId, source: options.source, controller, headers: null, chunks: [], atBoundary: true, pendingNotices: [], queued: false, done: false, waiting: new Set() };
+  const turn: LiveTurn = { id: options.turnId ?? crypto.randomUUID(), chatId, source: options.source, requestMessageId: options.requestMessageId ?? null, controller, headers: null, chunks: [], atBoundary: true, pendingNotices: [], queued: false, done: false, waiting: new Set(), finished: new Set() };
   registry.turns.set(chatId, turn);
   const stopWithOuter = () => controller.abort(options.outer?.reason);
   if (options.outer?.aborted) stopWithOuter();
@@ -238,14 +247,18 @@ export async function holdTurn(chatId: string, start: (signal: AbortSignal) => P
   } };
 
   const outcome = outcomeReader();
-  /** Ends the turn: records how it went and tells everyone. */
-  const finish = async (result: { outcome: TurnOutcome; errorCode?: string }) => {
+  const release = () => {
     options.outer?.removeEventListener("abort", stopWithOuter);
     context.ended = true;
     turn.done = true;
     turn.queued = false;
     wakeAll(turn);
     if (registry.turns.get(turn.chatId) === turn) registry.turns.delete(turn.chatId);
+    for (const end of turn.finished) end();
+  };
+  /** Ends the turn: records how it went and tells everyone. */
+  const finish = async (result: { outcome: TurnOutcome; errorCode?: string }) => {
+    release();
     await options.settle?.(turn.chatId, result.outcome).catch(() => console.error("chat.turn.settle_failed"));
     emit({ type: "turn-finished", chatId: turn.chatId, source: options.source, ...result });
   };
@@ -276,10 +289,7 @@ export async function holdTurn(chatId: string, start: (signal: AbortSignal) => P
     response = await runInTurn(context, () => start(controller.signal));
   } catch (error) {
     // It could not start: it leaves without a trace, and the caller hears why.
-    options.outer?.removeEventListener("abort", stopWithOuter);
-    context.ended = true;
-    turn.done = true;
-    if (registry.turns.get(chatId) === turn) registry.turns.delete(chatId);
+    release();
     throw error;
   }
   turn.headers = new Headers(response.headers);
@@ -300,13 +310,26 @@ export function attachTurn(chatId: string, seenRunId?: string | null): Response 
   const turn = registry.turns.get(chatId);
   if (!turn || turn.done || !turn.headers) return null;
   if (seenRunId && turn.headers.get("x-chat-run-id") === seenRunId) return null;
-  return new Response(follow(turn), { status: 200, headers: turn.headers });
+  return new Response(follow(turn, true), { status: 200, headers: turn.headers });
 }
 
-/** Stops the turn running in a conversation, or takes it out of the queue. Whether one was there. */
-export function stopTurn(chatId: string): boolean {
+/** Which turn a stop is meant for: the run it reads, or the last message of the request that started it. */
+export type TurnBinding = { turnId?: string | null; runId?: string | null; messageId?: string | null };
+
+/**
+ * Stops the turn running in a conversation, or takes it out of the queue.
+ * Whether one was there. With a binding only the turn it names is stopped: a
+ * stop that arrives after that turn ended leaves the next one alone.
+ */
+export function stopTurn(chatId: string, binding?: TurnBinding): boolean {
   const turn = registry.turns.get(chatId);
   if (!turn || turn.done) return false;
+  if (binding?.turnId && turn.id !== binding.turnId) return false;
+  if (binding && !binding.turnId && (binding.runId || binding.messageId)) {
+    const named = (!!binding.messageId && turn.requestMessageId === binding.messageId)
+      || (!!binding.runId && turn.headers?.get("x-chat-run-id") === binding.runId);
+    if (!named) return false;
+  }
   turn.controller.abort(new DOMException("Stopped", "AbortError"));
   for (const listener of registry.stopListeners ?? []) {
     try { listener(chatId); } catch { /* One listener failing does not keep the others from hearing it. */ }

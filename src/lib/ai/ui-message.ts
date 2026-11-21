@@ -271,6 +271,12 @@ export function decodePersistedAssistantToolMessage(
   }
 }
 
+/** The most characters of the first message a placeholder title keeps: as long as a model-written title. */
+export const PLACEHOLDER_TITLE_CHARACTERS = 36;
+
+/** A conversation's title made from its first message, until a short title is written for it. */
+export const placeholderTitle = (input: string) => truncateTitle(input, PLACEHOLDER_TITLE_CHARACTERS);
+
 export function truncateTitle(input: string, maxLength = 60): string {
   const normalized = input.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;

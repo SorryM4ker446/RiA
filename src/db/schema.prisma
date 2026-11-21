@@ -74,6 +74,11 @@ model ModelContextCalibration {
 model Chat {
   id              String       @id @default(cuid())
   title           String
+  // Who the title is from: "auto" while it is the placeholder the app made from
+  // the first message (a short model-written title may replace it), "named" once
+  // that happened, was given up on, or the title came from elsewhere (a task),
+  // and "manual" once the user named it. Nothing replaces "named" or "manual".
+  titleSource     String       @default("named")
   pinned          Boolean      @default(false)
   archived        Boolean      @default(false)
   // When set, this conversation neither reads long-term memory nor writes any.

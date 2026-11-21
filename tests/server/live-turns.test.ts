@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { attachTurn, holdTurn, isTurnLive, isTurnQueued, onTurnEvent, stopTurn } = await import("@/lib/chat/live-turns");
+const { attachTurn, holdTurn, isTurnLive, isTurnQueued, onTurnEvent, stopTurn, waitForTurnEnd } = await import("@/lib/chat/live-turns");
 const { setSlotCapacity, slotForCall, slotUsage } = await import("@/lib/models/call-slots");
 let capacity = 8;
 setSlotCapacity(async () => capacity);
@@ -30,6 +30,16 @@ async function readAll(response: Response) {
   return new TextDecoder().decode(await new Response(response.body).arrayBuffer());
 }
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test("a refused turn releases another request waiting for its conversation", async () => {
+  let refuse!: (error: Error) => void;
+  const starting = holdTurn("refused", () => new Promise((_, reject) => { refuse = reject; }), { source: "task" });
+  const waiting = waitForTurnEnd("refused", AbortSignal.timeout(1000));
+  refuse(new Error("Could not start"));
+  await assert.rejects(starting, /Could not start/);
+  await waiting;
+  assert.equal(isTurnLive("refused"), false);
+});
 
 test("a held turn keeps running when its reader leaves, and anyone attaching reads it from the start", async () => {
   const events: unknown[] = [];
@@ -228,4 +238,48 @@ test("stopping a turn whose call waits takes the call out of the queue, and the 
   assert.equal(slotUsage().inUse, 0);
   off();
   capacity = 8;
+});
+
+test("a stop that names a turn stops only that one: a late stop leaves the next turn in the conversation alone", async () => {
+  const first = scriptedTurn({ "x-chat-run-id": "run-first" });
+  const reading = readAll(await holdTurn("named", first.start, { source: "chat", requestMessageId: "message-first", turnId: "first-turn" }));
+  // Named by the message its request carried (before its answer has said which run it is) or by its run.
+  assert.equal(stopTurn("named", { messageId: "message-other" }), false);
+  assert.equal(stopTurn("named", { runId: "run-other" }), false);
+  assert.equal(isTurnLive("named"), true);
+  first.end();
+  await reading;
+  await settle();
+
+  const second = scriptedTurn({ "x-chat-run-id": "run-second" });
+  const next = readAll(await holdTurn("named", second.start, { source: "chat", requestMessageId: "message-second", turnId: "second-turn" }));
+  // The stop meant for the first turn arrives now.
+  assert.equal(stopTurn("named", { runId: "run-first", messageId: "message-first" }), false);
+  assert.equal(stopTurn("named", { turnId: "first-turn", messageId: "message-second" }), false, "a message id cannot override an obsolete turn id");
+  assert.equal(second.signal().aborted, false, "the turn after it goes on");
+  assert.equal(stopTurn("named", { runId: "run-first", messageId: "message-second" }), true, "either name is enough");
+  await next;
+  assert.equal(second.signal().aborted, true);
+  // Without a name, whatever runs is stopped, as before.
+  const third = scriptedTurn({ "x-chat-run-id": "run-third" });
+  const last = readAll(await holdTurn("named", third.start, { source: "chat" }));
+  assert.equal(stopTurn("named"), true);
+  await last;
+});
+
+test("a window attaching to a tool-free answer learns the turn's identity without replaying it in the original response", async () => {
+  const first = scriptedTurn({ "x-vercel-ai-ui-message-stream": "v1" });
+  const original = readAll(await holdTurn("attached", first.start, { source: "chat", turnId: "attached-first" }));
+  const attached = attachTurn("attached")!.body!.getReader();
+  const { value } = await attached.read();
+  const wire = new TextDecoder().decode(value);
+  assert.match(wire, /"type":"data-turn-identity","data":"attached-first","transient":true/);
+  await attached.cancel();
+  first.end();
+  assert.doesNotMatch(await original, /data-turn-identity/);
+  const second = scriptedTurn({ "x-vercel-ai-ui-message-stream": "v1" });
+  const replacement = readAll(await holdTurn("attached", second.start, { source: "chat", turnId: "attached-second" }));
+  assert.equal(stopTurn("attached", { turnId: "attached-first" }), false);
+  assert.equal(stopTurn("attached", { turnId: "attached-second" }), true);
+  await replacement;
 });

@@ -305,3 +305,53 @@ test("a message sent while a new conversation is still being created goes into i
   expect(chats).toHaveLength(1);
   expect(chats[0].title).toBe("新会话里的第一句话");
 });
+
+test("a conversation is named after its first request, not its greeting; the top bar and the list agree, a reload keeps it, a name given meanwhile wins, and a failure keeps the first message", async ({ page, app }) => {
+  await register(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  await page.goto(`${app.origin}/chat`);
+  const composer = page.getByPlaceholder(/输入你的问题/);
+  const send = async (text: string) => {
+    await composer.fill(text);
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    await expect(page.getByTestId("message-list").locator('[data-message-role="assistant"]').last()).toContainText(`离线回答：${text}`);
+    await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  };
+  const topTitle = page.locator(".workspace-topbar .chat-title-text");
+  const newest = async () => ((await browserData(page, "/api/conversations")) as { id: string; title: string }[])[0];
+  // A new conversation is open once its button is back and the top bar no longer names the last one.
+  const startNew = async (previous: string) => {
+    await page.getByRole("button", { name: "新会话", exact: true }).click();
+    await expect(page.getByRole("button", { name: "新会话", exact: true })).toBeEnabled();
+    await expect(topTitle).not.toHaveText(previous);
+  };
+
+  // A greeting stays the title: it says nothing to name.
+  await send("你好");
+  await expect(topTitle).toHaveText("你好");
+  await page.waitForTimeout(800);
+  expect((await newest()).title).toBe("你好");
+  // The request names it, and the answer was not held up for it.
+  await send("OFFLINE_TITLE 整理第三季度销售数据");
+  await expect(topTitle).toHaveText("离线标题·整理第三季度销售");
+  const sidebar = await openRecentConversations(page);
+  await expect(sidebar.getByRole("button", { name: /^离线标题·整理第三季度销售/ })).toBeVisible();
+  await page.reload();
+  await expect(topTitle).toHaveText("离线标题·整理第三季度销售");
+
+  // Renamed while its title is still being written: the user's name stays.
+  await startNew("离线标题·整理第三季度销售");
+  await send("OFFLINE_TITLE_SLOW 写一份周报");
+  const slow = await newest();
+  expect((await browserApi(page, `/api/conversations/${slow.id}`, "PATCH", { title: "我的周报" })).status).toBe(200);
+  await page.waitForTimeout(3_500);
+  expect((await browserData(page, `/api/conversations/${slow.id}`) as { title: string }).title).toBe("我的周报");
+  await expect(topTitle).toHaveText("我的周报");
+
+  // A title that cannot be written: the first message stays, readable.
+  await startNew("我的周报");
+  await send("OFFLINE_TITLE_FAIL 帮我整理会议纪要");
+  await page.waitForTimeout(800);
+  expect((await newest()).title).toBe("OFFLINE_TITLE_FAIL 帮我整理会议纪要");
+  await expect(topTitle).toHaveText("OFFLINE_TITLE_FAIL 帮我整理会议纪要");
+});
