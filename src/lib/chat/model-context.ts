@@ -1,4 +1,6 @@
 import { buildChatContext } from "@/lib/chat/context";
+import { terminalResultForModel } from "@/lib/terminal/model-output";
+import { terminalInputSchema } from "@/lib/terminal/schema";
 import { materializeChatAttachments } from "@/lib/media/messages";
 import {
   ASSISTANT_BASE_PROMPT,
@@ -259,7 +261,11 @@ export async function prepareModelContext(input: ChatRequest, signal?: AbortSign
     ...((input.body.mode ?? "chat") === "chat" && input.model?.supportsTools === true && (!input.assistant || input.assistant.tools.length > 0) ? { toolRecords: { replaysReasoning: input.modelRef.providerId === "deepseek", covered: summary?.state.calls, keepPreviousToolTurn: true } } : {}),
   });
   const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal), {
-    tools: { generateImage: { inputSchema: generateImageModelFields, toModelOutput: ({ output }: { output: unknown }) => generatedImageForModel(output) } },
+    // Earlier results reach the model as they did when they were new: a long command's output as its beginning and end.
+    tools: {
+      generateImage: { inputSchema: generateImageModelFields, toModelOutput: ({ output }: { output: unknown }) => generatedImageForModel(output) },
+      runTerminalCommand: { inputSchema: terminalInputSchema, toModelOutput: ({ output }: { output: unknown }) => ({ type: "json" as const, value: terminalResultForModel(output) as never }) },
+    },
   });
 
   return { context, modelMessages };

@@ -63,7 +63,7 @@ export function WindowControls() {
   if (!controls) return null;
 
   return (
-    <div className="flex h-full items-stretch self-stretch">
+    <div className="ml-auto flex h-full shrink-0 items-stretch self-stretch">
       <CaptionButton action={controls.minimize} label={t("window.minimize")}>
         <svg aria-hidden="true" className="h-3 w-3" fill="none" viewBox="0 0 12 12">
           <path d="M2 6.25h8" stroke="currentColor" strokeLinecap="round" strokeWidth="1" />

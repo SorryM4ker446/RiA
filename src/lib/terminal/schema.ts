@@ -4,7 +4,10 @@ import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
 // outputBytes bounds the in-memory capture; tailBytes of it keep each stream's latest output.
 // There is no cap on commands running at once: each conversation and task may
 // run as many as its work needs. Only finished records are retained and pruned.
-export const TERMINAL_LIMITS = { outputBytes: 64 * 1024, tailBytes: 8 * 1024, retainedSessions: 32, retentionMs: 30 * 60_000 } as const;
+// modelOutputBytes is what the model is sent of a command's output at first: its beginning and end. Compared
+// with a real model on a test log whose one failure sat in the middle, 16 KiB found it every time and used about
+// a quarter of the input, while 64 KiB hid the gap and the model reported no failure; the rest is in the log.
+export const TERMINAL_LIMITS = { outputBytes: 64 * 1024, tailBytes: 8 * 1024, modelOutputBytes: 16 * 1024, retainedSessions: 32, retentionMs: 30 * 60_000 } as const;
 /**
  * The longest a command may be given, and what a command in a run nobody is
  * watching gets when it names no time of its own. In a conversation the person

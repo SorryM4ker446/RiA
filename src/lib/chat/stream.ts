@@ -8,7 +8,7 @@ import { ApiError, apiErrorPayload, normalizeApiError } from "@/lib/server/api-e
 import { createChatToolSet } from "@/tools/catalog";
 import type { ModelMessage } from "ai";
 import type { LanguageModelV3Prompt } from "@ai-sdk/provider";
-import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel, type TextStreamPart, type ToolSet, type UIMessageChunk, type UIMessageStreamWriter } from "ai";
+import { asSchema, createUIMessageStream, createUIMessageStreamResponse, generateId, smoothStream, stepCountIs, streamText, wrapLanguageModel, type TextStreamPart, type ToolSet, type UIMessage, type UIMessageChunk, type UIMessageStreamWriter } from "ai";
 import { convertToLanguageModelPrompt, standardizePrompt } from "ai/internal";
 import { isContextOverflow } from "@/lib/models/context-overflow";
 import { claimChatApproval, persistChatResponse, type ChatPersistence } from "@/lib/chat/persistence";
@@ -35,7 +35,7 @@ import { compactAfterTurn } from "./compaction";
 import { planReminder } from "@/tools/definitions/update-plan";
 import { hasUnseenGeneratedImage } from "@/tools/definitions/generate-image";
 import { UNSEEN_IMAGE_REPLY_INSTRUCTION } from "@/lib/prompts";
-import { takeSubagentReports } from "@/lib/agents/subagents";
+import { pendingSubagentReports } from "@/lib/agents/subagents";
 import { activeToolIds } from "@/tools/deferred";
 import { createTurnFailureReader } from "./tool-failure";
 /** OpenRouter passes along reasoning it cannot show as encrypted details. */
@@ -43,6 +43,9 @@ function hasEncryptedReasoning(metadata: unknown) {
   const details = (metadata as { openrouter?: { reasoning_details?: unknown } } | undefined)?.openrouter?.reasoning_details;
   return Array.isArray(details) && details.some(detail => (detail as { type?: unknown })?.type === "reasoning.encrypted");
 }
+
+/** Whether the answer ends asking the user to decide something first (an approval or a question). */
+const awaitsDecision = (message: UIMessage) => message.parts.some(part => "state" in part && part.state === "approval-requested");
 
 type TurnOutcome = { finishReason: unknown; generationFailed: boolean; aborted: boolean };
 
@@ -312,8 +315,13 @@ async function openChatAnswer(params: ChatAnswer) {
       error instanceof ApiError && error.code === "CONTEXT_LIMIT" ? "context-limit" : "preflight-error");
     throw error;
   }
-  /** Reports of background sub-agents taken during this turn, sent with each step from the one that took them. */
+  /**
+   * Reports of background sub-agents taken during this turn, sent with each step from the one that took
+   * them. They count as given once the answer is saved; a turn that fails, is stopped or stops for an
+   * approval leaves them for the next turn (the resumed one takes them again).
+   */
   const subagentReports: string[] = [];
+  const heldReports: string[] = [];
   const result = withModelCallSource(params.callSource ?? "chat", () => streamText({
     model,
     maxRetries: 0,
@@ -340,8 +348,14 @@ async function openChatAnswer(params: ChatAnswer) {
       // Background sub-agents that ended since the last step: their reports join the turn here and stay
       // with every later step of it. A later turn reads them with checkSubagents.
       if (tools && "runSubagent" in tools) {
-        const reports = await takeSubagentReports(chat.id).catch(() => ({ text: "", titles: [] }));
-        if (reports.text) subagentReports.push(reports.text);
+        // A check for a specific agent may have already returned its report in a tool result.
+        for (const part of stepMessages.at(-1)?.content ?? []) {
+          if (typeof part === "string" || part.type !== "tool-result" || part.toolName !== "checkSubagents" || part.output.type !== "json") continue;
+          const result = part.output.value as { id?: string; background?: boolean; status?: string } | null;
+          if (result?.id && result.background && result.status !== "running") heldReports.push(result.id);
+        }
+        const reports = await pendingSubagentReports(chat.id, heldReports).catch(() => ({ ids: [] as string[], text: "", titles: [] }));
+        if (reports.text) { subagentReports.push(reports.text); heldReports.push(...reports.ids); }
       }
       // A reminder about the checklist rides on this step only, after everything else, so the prompt before it stays as it was.
       const reminder = tools && "updatePlan" in tools ? planReminder(stepMessages) : null;
@@ -416,6 +430,7 @@ async function openChatAnswer(params: ChatAnswer) {
           unavailableTools: params.unavailableTools, scheduled,
           runId: params.runId,
           contextReport: contextReport(),
+            heldReports: !generationFailed && !isAborted && !signal.aborted && !awaitsDecision(responseMessage) ? heldReports : [],
         });
       } catch (error) {
         persistenceFailed = true;

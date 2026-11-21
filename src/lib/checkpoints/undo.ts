@@ -1,15 +1,15 @@
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@/db";
+import { withFileWriteLock } from "@/lib/local-files/file-writes";
 import { isSameOrInside } from "@/lib/local-files/safe-path";
 import { ApiError } from "@/lib/server/api-error";
 import { t } from "@/lib/locale";
 import { isTurnLive } from "@/lib/chat/live-turns";
 import { terminalGrant } from "@/lib/terminal/runtime";
-import { CHECKPOINT_LIMITS, hasBlob, putBlob, readBlob } from "./store";
-import { restoreGitBlob } from "./git";
+import { hasBlob, readBlob } from "./store";
+import { writeGitBlob } from "./git";
+import { commitFile, sha256OfFile, type Expected, type Next } from "./commit";
 
 /*
  * Undoing a turn's file changes, and redoing them. Every file the chosen turns
@@ -18,7 +18,9 @@ import { restoreGitBlob } from "./git";
  * user, another program or a later turn) is left alone and reported. A file
  * the turns created is deleted; one they deleted is written again. The content
  * an undo replaces is kept first, so the undo itself can be taken back (redo)
- * while the file is still as the undo left it. Writes stay inside the folder.
+ * while the file is still as the undo left it. Writes stay inside the folder,
+ * take turns with RiA's other writes to the same file, and check the file once
+ * more at the moment it is changed (commit.ts).
  */
 
 export type UndoAction = "restore" | "delete" | "recreate";
@@ -92,11 +94,6 @@ async function placeOf(root: string, relative: string) {
   return { absolute, exists: !!info };
 }
 
-async function hashOf(absolute: string) {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(absolute)) hash.update(chunk as Buffer);
-  return hash.digest("hex");
-}
 
 type Checked = UndoItem & { group: Group; absolute?: string };
 
@@ -110,7 +107,7 @@ async function check(group: Group, roots: Map<string, string | null>): Promise<C
   const place = await placeOf(root, last.path).catch(() => null);
   if (!place) return { ...base, status: "folder-unavailable" };
   // Still exactly as the last change left it?
-  const asLeft = last.kind === "deleted" ? !place.exists : !!last.afterHash && place.exists && await hashOf(place.absolute).catch(() => null) === last.afterHash;
+  const asLeft = last.kind === "deleted" ? !place.exists : !!last.afterHash && place.exists && await sha256OfFile(place.absolute).catch(() => null) === last.afterHash;
   return { ...base, absolute: place.absolute, status: asLeft ? "ready" : "changed" };
 }
 
@@ -129,7 +126,7 @@ async function checkRedo(group: Group, roots: Map<string, string | null>): Promi
   if (!root || root !== first.root) return { ...base, status: "folder-unavailable", redoable: false };
   const place = await placeOf(root, last.path).catch(() => null);
   if (!place) return { ...base, status: "folder-unavailable", redoable: false };
-  const asUndone = first.kind === "created" ? !place.exists : place.exists && await hashOf(place.absolute).catch(() => null) === first.beforeHash;
+  const asUndone = first.kind === "created" ? !place.exists : place.exists && await sha256OfFile(place.absolute).catch(() => null) === first.beforeHash;
   return { ...base, absolute: place.absolute, status: asUndone ? "ready" : "changed", redoable: asUndone };
 }
 
@@ -161,36 +158,53 @@ export async function previewUndo(chatId: string, runIds: string[], selection?: 
 
 const busy = new Set<string>();
 
-/** Keeps what a file holds now, before an undo replaces or deletes it, so the undo can be redone. */
-async function keepForRedo(absolute: string, hash: string | null) {
-  if (!hash) return;
-  const info = await stat(absolute).catch(() => null);
-  if (!info || info.size > CHECKPOINT_LIMITS.fileBytes || await hasBlob(hash)) return;
-  const bytes = await readFile(absolute).catch(() => null);
-  if (bytes) await putBlob(bytes, hash).catch(() => null);
-}
+const lockedCode = (error: unknown) => ["EPERM", "EBUSY", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "");
 
-async function writeInside(root: string, absolute: string, bytes: Buffer) {
+/** Makes sure the folder the file goes in exists and is still inside the workspace. */
+async function prepareFolder(root: string, absolute: string) {
   await mkdir(path.dirname(absolute), { recursive: true });
   if (!isSameOrInside(await realpath(path.dirname(absolute)), root)) throw new Error("outside the folder");
-  const temporary = path.join(path.dirname(absolute), `.ria-undo-${randomUUID()}.tmp`);
-  try {
-    await writeFile(temporary, bytes, { flag: "wx" });
-    await rename(temporary, absolute);
-  } finally { await rm(temporary, { force: true }).catch(() => {}); }
 }
 
-/** Puts the content before back: from the workspace's git repository when it was left there, else from the store. */
-async function restore(root: string, absolute: string, first: Row): Promise<boolean> {
-  if (first.beforeGitOid) {
-    await mkdir(path.dirname(absolute), { recursive: true });
-    if (!isSameOrInside(await realpath(path.dirname(absolute)), root)) throw new Error("outside the folder");
-    if (await restoreGitBlob(root, first.beforeGitOid, first.beforeHash!, absolute)) return true;
-  }
-  const bytes = await readBlob(first.beforeHash!);
-  if (!bytes) return false;
-  await writeInside(root, absolute, bytes);
-  return true;
+/** Content from the store, as a new file at the temporary path. */
+const fromStore = (hash: string): Next => ({
+  hash,
+  write: async temporary => {
+    const bytes = await readBlob(hash);
+    if (!bytes) return false;
+    await writeFile(temporary, bytes, { flag: "wx" });
+    return true;
+  },
+});
+
+/** The content before the first change: from the workspace's git repository when it was left there, else from the store. */
+const before = (root: string, first: Row): Next => ({
+  hash: first.beforeHash!,
+  write: async temporary => (!!first.beforeGitOid && await writeGitBlob(root, first.beforeGitOid, first.beforeHash!, temporary))
+    || fromStore(first.beforeHash!).write(temporary),
+});
+
+type Step = { expected: Expected; next: Next | null; keep: boolean };
+
+/**
+ * Changes one file and records it, or leaves it as it is. The file is checked
+ * again at the moment it is changed (another program, or RiA itself, may have
+ * written it since the first check), and the change is taken back if it
+ * cannot be recorded, so files and records never disagree.
+ */
+async function change(root: string, item: Checked, step: Step, record: () => Promise<unknown>): Promise<"done" | "changed" | "missing-content"> {
+  const absolute = item.absolute!;
+  return withFileWriteLock(absolute, async () => {
+    if (step.next) await prepareFolder(root, absolute);
+    const result = await commitFile(absolute, step.expected, step.next, { keep: step.keep });
+    if (result.status !== "done") return result.status;
+    try { await record(); } catch (error) {
+      await result.revert().catch(() => false);
+      throw error;
+    }
+    await result.finish();
+    return "done";
+  });
 }
 
 /** Undoes what can be undone, leaves the rest as it is, and says which was which. */
@@ -208,15 +222,17 @@ export async function applyUndo(chatId: string, runIds: string[], selection?: Un
       if (item.status !== "ready") { results.push(view(item)); continue; }
       const root = roots.get(item.grantId)!;
       try {
-        if (item.action !== "recreate") await keepForRedo(item.absolute!, group.last.afterHash);
-        if (item.action === "delete") await rm(item.absolute!, { force: true });
-        else if (!await restore(root, item.absolute!, group.first)) { results.push(view({ ...item, status: "not-kept", reason: "expired" })); continue; }
-        await db.fileCheckpoint.updateMany({ where: { id: { in: group.ids } }, data: { undoneAt: new Date() } });
+        const outcome = await change(root, item, {
+          expected: group.last.kind === "deleted" ? null : group.last.afterHash,
+          next: item.action === "delete" ? null : before(root, group.first),
+          keep: item.action !== "recreate",
+        }, () => db.fileCheckpoint.updateMany({ where: { id: { in: group.ids }, undoneAt: null }, data: { undoneAt: new Date() } }));
+        if (outcome === "changed") { results.push(view({ ...item, status: "changed" })); continue; }
+        if (outcome === "missing-content") { results.push(view({ ...item, status: "not-kept", reason: "expired" })); continue; }
         results.push(view({ ...item, status: "undone", undone: true, redoable: await redoable(group) }));
         undone.push({ grantId: item.grantId, path: item.path, action: item.action });
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        results.push(view({ ...item, status: "failed", reason: code === "EPERM" || code === "EBUSY" || code === "EACCES" ? "locked" : null }));
+        results.push(view({ ...item, status: "failed", reason: lockedCode(error) ? "locked" : null }));
       }
     }
     if (undone.length) noteUndo(chatId, undone);
@@ -248,18 +264,17 @@ export async function applyRedo(chatId: string, runIds: string[], selection?: Un
       if (item.status !== "ready") { results.push(view(item)); continue; }
       const root = roots.get(item.grantId)!;
       try {
-        if (group.last.kind === "deleted") await rm(item.absolute!, { force: true });
-        else {
-          const bytes = await readBlob(group.last.afterHash!);
-          if (!bytes) { results.push(view({ ...item, status: "not-kept", reason: "expired", redoable: false })); continue; }
-          await writeInside(root, item.absolute!, bytes);
-        }
-        await db.fileCheckpoint.updateMany({ where: { id: { in: group.ids } }, data: { undoneAt: null } });
+        const outcome = await change(root, item, {
+          expected: group.first.kind === "created" ? null : group.first.beforeHash,
+          next: group.last.kind === "deleted" ? null : fromStore(group.last.afterHash!),
+          keep: false,
+        }, () => db.fileCheckpoint.updateMany({ where: { id: { in: group.ids }, undoneAt: { not: null } }, data: { undoneAt: null } }));
+        if (outcome === "changed") { results.push(view({ ...item, status: "changed", redoable: false })); continue; }
+        if (outcome === "missing-content") { results.push(view({ ...item, status: "not-kept", reason: "expired", redoable: false })); continue; }
         results.push(view({ ...item, status: "redone", undone: false, redoable: false }));
         redone.push({ grantId: item.grantId, path: item.path, action: "redo" });
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        results.push(view({ ...item, status: "failed", reason: code === "EPERM" || code === "EBUSY" || code === "EACCES" ? "locked" : null }));
+        results.push(view({ ...item, status: "failed", reason: lockedCode(error) ? "locked" : null }));
       }
     }
     if (redone.length) noteUndo(chatId, redone);

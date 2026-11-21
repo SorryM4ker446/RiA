@@ -17,6 +17,9 @@ const { applyProjectEdit, bindProjectEdit } = await import("@/lib/project-files/
 const { contentHash } = await import("@/lib/project-files/text");
 const { applyRedo, applyUndo, previewRedo, previewUndo, takeUndoContext, undoStates } = await import("@/lib/checkpoints/undo");
 const { pruneCheckpoints } = await import("@/lib/checkpoints/prune");
+const { commitFile } = await import("@/lib/checkpoints/commit");
+const { writeGitBlob } = await import("@/lib/checkpoints/git");
+const { withFileWriteLock } = await import("@/lib/local-files/file-writes");
 const { hasBlob, putBlob, readBlob, saveStoreLimit, sha256, checkpointRoot } = await import("@/lib/checkpoints/store");
 const preferencesRoute = await import("@/app/api/checkpoint-preferences/route");
 const undoRoute = await import("@/app/api/conversations/[id]/undo/route");
@@ -319,4 +322,177 @@ test("an undo can be redone while the file is as the undo left it, and the card'
   assert.equal(status.status, 200);
   assert.equal((await undoRequest(where.chatId, { runIds: [where.runId], action: "explode" })).status, 400);
   assert.equal((await undoRequest(where.chatId, { runIds: [where.runId], apply: true })).status, 400);
+});
+
+type WriteLocks = Map<string, Promise<unknown>>;
+/**
+ * Holds RiA's write lock on a file while `start` runs until it waits for that
+ * lock (it has checked the file and is about to change it), then runs
+ * `meanwhile` (another program writing the file) and lets it go on.
+ */
+async function whileWaitingToWrite<T>(absolute: string, start: () => Promise<T>, meanwhile: () => void): Promise<T> {
+  let release!: () => void;
+  const held = withFileWriteLock(absolute, () => new Promise<void>(resolve => { release = resolve; }));
+  const locks = (globalThis as { __riaFileWriteLocks?: WriteLocks }).__riaFileWriteLocks!;
+  const key = win ? absolute.toLowerCase() : absolute;
+  const ours = locks.get(key);
+  const pending = start();
+  for (let turn = 0; locks.get(key) === ours; turn++) {
+    if (turn > 100_000) throw new Error("the change never reached the file");
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  meanwhile();
+  release();
+  await held;
+  return pending;
+}
+const leftovers = (root: string) => readdirSync(root, { recursive: true }).map(String).filter(name => name.includes(".ria-undo-") || name.includes(".ria-edit-"));
+
+test("undo checks each file again as it changes it: a file rewritten or recreated meanwhile is kept, with its records", async () => {
+  const where = await workspace();
+  writeFileSync(path.join(where.root, "notes.txt"), "before");
+  writeFileSync(path.join(where.root, "old.txt"), "deleted by the turn");
+  await command(where, win
+    ? "[IO.File]::WriteAllText('notes.txt', 'after'); Remove-Item -LiteralPath 'old.txt'"
+    : "printf after > notes.txt; rm old.txt");
+  const notes = path.join(where.root, "notes.txt"), old = path.join(where.root, "old.txt");
+  const only = (file: string) => [{ grantId: where.grantId, path: file }];
+
+  const rewritten = await whileWaitingToWrite(notes, () => applyUndo(where.chatId, [where.runId], only("notes.txt")), () => writeFileSync(notes, "the user's version"));
+  assert.deepEqual(rewritten.map(item => item.status), ["changed"]);
+  assert.equal(readFileSync(notes, "utf8"), "the user's version");
+  const recreated = await whileWaitingToWrite(old, () => applyUndo(where.chatId, [where.runId], only("old.txt")), () => writeFileSync(old, "a new file with the same name"));
+  assert.deepEqual(recreated.map(item => item.status), ["changed"]);
+  assert.equal(readFileSync(old, "utf8"), "a new file with the same name");
+  assert.ok((await db.fileCheckpoint.findMany({ where: { chatId: where.chatId } })).every(row => row.undoneAt === null), "nothing is marked undone");
+  assert.deepEqual(leftovers(where.root), []);
+
+  // Once the files are as the turn left them again, the same records undo them.
+  writeFileSync(notes, "after");
+  rmSync(old);
+  assert.ok((await applyUndo(where.chatId, [where.runId])).every(item => item.status === "undone"));
+  assert.equal(readFileSync(notes, "utf8"), "before");
+  assert.equal(readFileSync(old, "utf8"), "deleted by the turn");
+  assert.deepEqual(leftovers(where.root), []);
+});
+
+test("redo checks the file again too, never writes over a file created meanwhile, and leaves exactly what the turn left", async () => {
+  const where = await workspace();
+  writeFileSync(path.join(where.root, "page.ts"), "line one\r\nline two\n");
+  await command(where, win
+    ? "[IO.File]::WriteAllText('page.ts', \"changed`r`nby the turn`n\"); [IO.File]::WriteAllText('made.txt', 'created by the turn')"
+    : "printf 'changed\\r\\nby the turn\\n' > page.ts; printf 'created by the turn' > made.txt");
+  const rows = await db.fileCheckpoint.findMany({ where: { chatId: where.chatId } });
+  assert.ok((await applyUndo(where.chatId, [where.runId])).every(item => item.status === "undone"));
+  const made = path.join(where.root, "made.txt");
+  const redoMade = await whileWaitingToWrite(made, () => applyRedo(where.chatId, [where.runId], [{ grantId: where.grantId, path: "made.txt" }]), () => writeFileSync(made, "someone else's file"));
+  assert.deepEqual(redoMade.map(item => [item.status, item.undone]), [["changed", true]]);
+  assert.equal(readFileSync(made, "utf8"), "someone else's file");
+
+  assert.deepEqual((await applyRedo(where.chatId, [where.runId], [{ grantId: where.grantId, path: "page.ts" }])).map(item => item.status), ["redone"]);
+  assert.equal(sha256(readFileSync(path.join(where.root, "page.ts"))), rows.find(row => row.path === "page.ts")!.afterHash, "the same bytes the turn left");
+  assert.deepEqual(leftovers(where.root), []);
+});
+
+test("RiA's own edit and an undo of the same file take turns, and the file and its records agree whichever goes first", async () => {
+  const where = await workspace();
+  const file = path.join(where.root, "math.ts");
+  writeFileSync(file, "export const value = 1;\n");
+  const first = await bindProjectEdit({ grantId: where.grantId, path: "math.ts", expectedHash: contentHash(readFileSync(file)), edits: [{ oldText: "1", newText: "2" }] });
+  await applyProjectEdit(first, undefined, { chatId: where.chatId, runId: where.runId });
+  const second = await bindProjectEdit({ grantId: where.grantId, path: "math.ts", expectedHash: contentHash(readFileSync(file)), edits: [{ oldText: "2", newText: "3" }] });
+  const [undone, edited] = await Promise.allSettled([applyUndo(where.chatId, [where.runId]), applyProjectEdit(second)]);
+  assert.equal(undone.status, "fulfilled");
+  const status = undone.status === "fulfilled" ? undone.value[0]?.status : null;
+  const marked = (await db.fileCheckpoint.findFirstOrThrow({ where: { chatId: where.chatId } })).undoneAt !== null;
+  if (status === "undone") {
+    assert.equal(edited.status, "rejected", "the edit was planned against content the undo replaced");
+    assert.equal(readFileSync(file, "utf8"), "export const value = 1;\n");
+    assert.equal(marked, true);
+  } else {
+    assert.equal(status, "changed");
+    assert.equal(edited.status, "fulfilled");
+    assert.equal(readFileSync(file, "utf8"), "export const value = 3;\n");
+    assert.equal(marked, false);
+  }
+});
+
+test("a file created by something else after the file tool planned a new file is not written over", async () => {
+  const where = await workspace();
+  const target = path.join(where.root, "fresh.md");
+  const planned = await bindProjectEdit({ grantId: where.grantId, path: "fresh.md", content: "# From the model\n" });
+  await assert.rejects(whileWaitingToWrite(target, () => applyProjectEdit(planned), () => writeFileSync(target, "the user's file")));
+  assert.equal(readFileSync(target, "utf8"), "the user's file");
+  assert.deepEqual(leftovers(where.root), []);
+});
+
+test("an undo that cannot be recorded is taken back, so the file and its records still agree", async () => {
+  const where = await workspace();
+  const file = path.join(where.root, "notes.txt");
+  writeFileSync(file, "before");
+  await command(where, win ? "[IO.File]::WriteAllText('notes.txt', 'after')" : "printf after > notes.txt");
+  // The database refuses the record of the undo.
+  await db.$executeRawUnsafe(`CREATE TRIGGER "test_refuse_undo" BEFORE UPDATE OF "undoneAt" ON "file_checkpoints" BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`);
+  let results;
+  try { results = await applyUndo(where.chatId, [where.runId]); } finally { await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "test_refuse_undo"`); }
+  assert.deepEqual(results.map(item => item.status), ["failed"]);
+  assert.equal(readFileSync(file, "utf8"), "after", "the file is back as the turn left it");
+  assert.equal((await db.fileCheckpoint.findFirstOrThrow({ where: { chatId: where.chatId } })).undoneAt, null);
+  assert.deepEqual(leftovers(where.root), []);
+  assert.deepEqual((await applyUndo(where.chatId, [where.runId])).map(item => item.status), ["undone"]);
+  assert.equal(readFileSync(file, "utf8"), "before");
+});
+
+test("the commit step changes a file only while it is as expected, and can take its change back", async () => {
+  const where = await workspace();
+  const file = path.join(where.root, "a.txt");
+  const content = (text: string) => ({ hash: sha256(Buffer.from(text)), write: async (temporary: string) => { writeFileSync(temporary, text, { flag: "wx" }); return true; } });
+  writeFileSync(file, "mine");
+  assert.equal((await commitFile(file, sha256(Buffer.from("expected")), content("new"))).status, "changed");
+  assert.equal((await commitFile(file, null, content("new"))).status, "changed", "a file that should not exist is never written over");
+  assert.equal((await commitFile(file, sha256(Buffer.from("mine")), { hash: "0".repeat(64), write: async () => false })).status, "missing-content");
+  assert.equal(readFileSync(file, "utf8"), "mine");
+  const done = await commitFile(file, sha256(Buffer.from("mine")), content("new"));
+  assert.equal(done.status, "done");
+  assert.equal(readFileSync(file, "utf8"), "new");
+  assert.equal(done.status === "done" && await done.revert(), true);
+  assert.equal(readFileSync(file, "utf8"), "mine");
+  const removed = await commitFile(file, sha256(Buffer.from("mine")), null);
+  assert.equal(removed.status, "done");
+  if (removed.status === "done") await removed.finish();
+  assert.equal(existsSync(file), false);
+  assert.deepEqual(leftovers(where.root), []);
+});
+
+test("the git blob writer settles only once git and the file are done, and leaves nothing of its own behind", { skip: !hasGit && "git is not installed" }, async () => {
+  const where = await workspace();
+  git(where.root, "init", "-q");
+  writeFileSync(path.join(where.root, "tracked.txt"), "from git\n");
+  git(where.root, "add", ".");
+  git(where.root, "commit", "-q", "-m", "start");
+  const oid = execFileSync("git", ["rev-parse", "HEAD:tracked.txt"], { cwd: where.root, encoding: "utf8" }).trim();
+  const expected = sha256(Buffer.from("from git\n"));
+  const target = (name: string) => path.join(where.root, name);
+
+  assert.equal(await writeGitBlob(where.root, oid, expected, target("restored.tmp")), true);
+  assert.equal(readFileSync(target("restored.tmp"), "utf8"), "from git\n");
+  // The file cannot be written: git is stopped and nothing is created.
+  assert.equal(await writeGitBlob(where.root, oid, expected, path.join(where.root, "missing", "x.tmp")), false);
+  assert.equal(existsSync(path.join(where.root, "missing")), false);
+  // A file already at that name is not this writer's to remove.
+  writeFileSync(target("taken.tmp"), "already here");
+  assert.equal(await writeGitBlob(where.root, oid, expected, target("taken.tmp")), false);
+  assert.equal(readFileSync(target("taken.tmp"), "utf8"), "already here");
+  // Git cannot start, exits early (no such object) or gives other content.
+  const path_ = process.env.PATH;
+  process.env.PATH = "";
+  try { assert.equal(await writeGitBlob(where.root, oid, expected, target("no-git.tmp")), false); } finally { process.env.PATH = path_; }
+  assert.equal(await writeGitBlob(where.root, "0".repeat(40), expected, target("early.tmp")), false);
+  assert.equal(await writeGitBlob(where.root, oid, sha256(Buffer.from("other")), target("differs.tmp")), false);
+  for (const name of ["no-git.tmp", "early.tmp", "differs.tmp"]) assert.equal(existsSync(target(name)), false, name);
+  // Nothing still holds the folder afterwards: it can be removed at once.
+  const inner = path.join(where.root, "inner");
+  mkdirSync(inner);
+  assert.equal(await writeGitBlob(where.root, "0".repeat(40), expected, path.join(inner, "x.tmp")), false);
+  rmSync(inner, { recursive: true });
 });

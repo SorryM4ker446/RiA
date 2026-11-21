@@ -88,21 +88,33 @@ is answered, not handed a sub-agent. The real-model eval scores both
 
 Every sub-agent has a record in `subagent_runs` (status, report, actions not run, whether
 the model has been given the report), kept by the registry in `src/lib/agents/subagents.ts`.
-A background report reaches the model by itself, once:
+A background report reaches the model by itself, once. It counts as handed over only when
+the conversation has saved what carries it, and it is marked in the same write; until
+then it stays waiting:
 
 - **During the turn.** Before each step, reports of background sub-agents that have
   ended are taken and sent as an automatic notice, marked as not coming from the user;
-  the turn keeps it for its remaining steps. A later turn reads it again with
-  `checkSubagents`, by id; it is not written into the conversation's history.
+  the turn keeps it for its remaining steps. An explicit tool read also holds the report
+  for that turn. The report is marked given in the same transaction that saves the
+  successful answer. A turn that fails, is stopped, or ends asking for an approval
+  leaves them waiting: the turn that resumes from the approval takes them again. A later
+  turn reads a given report again with `checkSubagents`, by id; it is not written into
+  the conversation's history.
 - **After the turn.** A report that ends while the conversation is idle wakes it
   (`src/lib/agents/subagent-continuation.ts`): a turn starts whose message is that
   notice, saved with a `notice` marker so the conversation shows a line ("sub-agent X
-  ended; RiA carries on") rather than a message from the user. A report that comes
-  while a turn runs is taken by its next step, or wakes the conversation when that turn
-  ends. Nothing is woken while the conversation waits for an approval (the report goes
-  with the next request), after a turn the user stopped, or for a sub-agent that was
-  stopped or interrupted; those are told at the next chance. A woken turn ends with the
-  usual completion alert; in a task's conversation it runs as the task's would.
+  ended; RiA carries on") rather than a message from the user. The notice and the mark
+  are one transaction; if another reader marked any of those reports first, the notice
+  is not saved and the rest go in a fresh wake. A woken turn whose notice could not be
+  saved (an approval came first, the write failed) is not retried at once: the reports
+  go with the next request or the next change that lets the conversation go on. A
+  report that comes while a turn runs is taken by its next step, or wakes the
+  conversation when that turn ends. Nothing is woken while the conversation waits for an
+  approval: answering it resumes a turn that takes the reports, and declining it wakes
+  the conversation for them. Nothing is woken after a turn the user stopped, or for a
+  sub-agent that was stopped or interrupted; those are told at the next chance. A woken
+  turn ends with the usual completion alert; in a task's conversation it runs as the
+  task's would.
 - **On demand.** `checkSubagents` lists the conversation's sub-agents with their status,
   run time and current tool, and with an id gives one report. The model need not poll.
 
@@ -125,7 +137,10 @@ failures, the internal runner's fallback and deadline, the unattended time limit
 only in scheduled turns, summaries counted against the turn's allowance, and in the
 background: the id handed back at once with the report joining the next step, a late
 report waking the conversation with a notice, stopping one from its card and all of
-them with a turn, interrupted ones after a restart, and a task waiting for them.
+them with a turn, interrupted ones after a restart, a task waiting for them, a report
+held through an approval and delivered once it is declined, a notice that cannot be
+saved leaving its report for the next request, reports ending one after another each
+waking once, and two readers racing to hand over the same report.
 `tests/e2e/subagents.spec.ts` checks the card, the execution record and the background
 flow through the offline model (`OFFLINE_SUBAGENT`, `OFFLINE_SUBAGENT_BG`), and that a
 notice shows as a line.

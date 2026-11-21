@@ -91,6 +91,7 @@ export function createWindowTransitions(window: BrowserWindow, onError: (error: 
   const entrance = () => playEntrance("restore");
   const reframe = () => playEntrance("reframe-in");
   function dispose() {
+    if (disposed) return;
     disposed = true;
     pending = null;
     for (const finish of waits) finish();
@@ -98,11 +99,12 @@ export function createWindowTransitions(window: BrowserWindow, onError: (error: 
     window.removeListener("show", entrance);
     window.removeListener("maximize", reframe);
     window.removeListener("unmaximize", reframe);
+    window.removeListener("closed", dispose);
   }
   window.on("restore", entrance);
   window.on("show", entrance);
   window.on("maximize", reframe);
   window.on("unmaximize", reframe);
   window.once("closed", dispose);
-  return { request, isClosing: () => closing };
+  return { request, isClosing: () => closing, dispose };
 }

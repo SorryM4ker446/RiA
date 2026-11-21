@@ -34,7 +34,8 @@ import type { CallSource } from "@/lib/models/call-context";
  * to its end itself. `signal` is whatever stops the turn: the page going away,
  * or the task being stopped.
  */
-export async function answerChatRequest(input: ChatRequest, signal: AbortSignal, options: { callSource?: CallSource; requestNote?: string } = {}): Promise<Response> {
+/** deliverSubagents: background sub-agent reports the new message carries, given to the conversation only if it is saved. */
+export async function answerChatRequest(input: ChatRequest, signal: AbortSignal, options: { callSource?: CallSource; requestNote?: string; deliverSubagents?: string[] } = {}): Promise<Response> {
   const { body, modelRef, latestUserMessage } = input;
   // Checked against the provider the chosen model actually belongs to. Naming
   // OpenRouter here refused every DeepSeek-only install before it could say so,
@@ -61,7 +62,7 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
   const invocation = latestUserMessage?.invocation && !input.isApprovalResume
     ? await resolveInvocation(latestUserMessage.invocation, { allowedToolIds: input.assistant?.tools, modelSupportsTools: toolsEnabled, modelRef })
     : null;
-  const conversation = await prepareChatPersistence(input, { deferApproval: true });
+  const conversation = await prepareChatPersistence(input, { deferApproval: true, deliverSubagents: options.deliverSubagents });
   const unavailableStatuses = await unavailableChatTools(input.assistant?.tools, canUseTools, modelRef);
   const unavailableTools = unavailableStatuses.map(tool => tool.id);
 

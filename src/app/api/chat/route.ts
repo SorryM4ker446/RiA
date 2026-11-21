@@ -2,6 +2,7 @@ import { protectDataOperation } from "@/lib/server/data-operations";
 import { requireLocalWorkspace } from "@/lib/local/workspace";
 import { readChatRequest } from "@/lib/chat/request";
 import { answerChatRequest } from "@/lib/chat/turn";
+import { nameConversation } from "@/lib/chat/conversation-title";
 import { holdTurn } from "@/lib/chat/live-turns";
 import { markTurnAnswered } from "@/lib/conversations/mutations";
 import { createApiErrorResponse, normalizeApiError } from "@/lib/server/api-error";
@@ -22,9 +23,18 @@ async function POSTHandler(req: NextRequest) {
     // Given up before it was read (stopped at once): nobody wants this turn. Once
     // started, the request ending no longer ends it.
     if (req.signal.aborted) return new Response(null, { status: 204 });
+    const namesConversation = input.latestUserMessage && !input.latestUserMessage.notice && !input.isApprovalResume && input.body.trigger !== "regenerate-message";
+    const requestTurnId = req.headers.get("x-ria-turn-id");
     return await holdTurn(input.requestedChatId ?? crypto.randomUUID(), signal => answerChatRequest(input, signal), {
       source: "chat",
-      settle: markTurnAnswered,
+      settle: async (chatId, outcome) => {
+        if (namesConversation && (outcome === "succeeded" || outcome === "waiting_approval")) {
+          void nameConversation(chatId, input.modelRef);
+        }
+        await markTurnAnswered(chatId, outcome);
+      },
+      requestMessageId: input.body.messages.at(-1)?.id ?? null,
+      turnId: requestTurnId && /^[a-f0-9-]{36}$/.test(requestTurnId) ? requestTurnId : undefined,
     });
   } catch (error) {
     console.error("/api/chat error", normalizeApiError(error).code);

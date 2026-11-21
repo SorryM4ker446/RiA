@@ -15,6 +15,9 @@ export type EmbeddingModelV3 = Extract<EmbeddingModel, { specificationVersion: "
 export type ReasoningPreference = { enabled: boolean; effort: "low" | "high" | "max" | null };
 
 /** A model as the provider's own catalog describes it, before the user adds it. */
+/** A model a chat catalog lists that generates media, and which media. */
+export type CatalogGenerator = { modelId: string; outputs: ("image" | "video")[] };
+
 export type CatalogModel = {
   providerId: ProviderId;
   modelId: string;
@@ -32,6 +35,8 @@ export type CatalogModel = {
   providerSupportsImageInput?: boolean;
   endpointImageInput: boolean | null;
   supportsTools: boolean;
+  /** For a chat row: what the model outputs, as the catalog said. Rows cached before this was kept have none. */
+  outputs?: string[];
   /** The provider runs its own web search for this model, at extra cost. */
   providerSearch: boolean;
   /** Null when the catalog says the model does not reason; absent when it has not said. */
@@ -108,7 +113,11 @@ export type ModelProvider = {
    */
   reasoningOptions?: (preference: ReasoningPreference, model?: { reasoning?: ReasoningCapability | null } | null) => SharedV3ProviderOptions | undefined;
   /** Reads one mode's catalog. Throws `CatalogFetchError`, never a raw fetch error. */
-  fetchCatalog: (mode: LibraryMode, signal: AbortSignal) => Promise<{ models: CatalogModel[]; invalidRows: number }>;
+  /**
+   * generators: models a chat catalog lists (they also write text) whose purpose is making pictures or
+   * video. They are not chat models; a library entry that took one in as one is corrected from this.
+   */
+  fetchCatalog: (mode: LibraryMode, signal: AbortSignal) => Promise<{ models: CatalogModel[]; invalidRows: number; generators?: CatalogGenerator[] }>;
   createChatModel: (modelId: string) => LanguageModelV3;
   /** A mode the provider does not offer must refuse loudly rather than pretend. */
   createImageModel?: (modelId: string) => ImageModelV3;

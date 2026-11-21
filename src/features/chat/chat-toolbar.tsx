@@ -103,6 +103,7 @@ export function ChatHeader({
           <button ref={titleButton} type="button" className="chat-title" aria-label={tf("chat.header.menuLabel", { title: title ?? "" })}><span className="chat-title-text truncate">{title}</span><ChevronDown aria-hidden="true" /></button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="chat-header-menu">
+          {title ? <DropdownMenuLabel className="break-words text-popover-foreground">{title}</DropdownMenuLabel> : null}
           <DropdownMenuLabel>{t("ui.assistants.assistantTemplates")}</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={snapshot?.templateId ?? ""} onValueChange={value => void applyAssistant(value || null)}>
             <DropdownMenuRadioItem value="" disabled={choosing}>{t("ui.chat.chat-toolbar.generalAssistant")}</DropdownMenuRadioItem>

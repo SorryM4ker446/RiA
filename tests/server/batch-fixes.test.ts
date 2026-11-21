@@ -17,7 +17,7 @@ const chatRoute = await import("@/app/api/chat/route");
 const { readChatRequest } = await import("@/lib/chat/request");
 const { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const { saveChatMessage, releaseUnclaimedToolApproval } = await import("@/lib/chat/store");
-const { persistChatResponse } = await import("@/lib/chat/persistence");
+const { persistChatResponse, prepareChatPersistence } = await import("@/lib/chat/persistence");
 const { runWebSearch } = await import("@/tools/definitions/web-search");
 const { createChatToolSet } = await import("@/tools/catalog");
 const { GET } = await import("@/app/api/local-access/route");
@@ -86,12 +86,13 @@ test("persistChatResponse never overwrites a title renamed during generation", a
   assert.ok(after.lastMessageAt);
 });
 
-test("a still-unrenamed conversation is titled from its first user message", async () => {
-  const owned = await db.chat.create({ data: { title: "New Chat" } });
+test("an empty conversation takes its placeholder from the first saved user message", async () => {
+  const owned = await db.chat.create({ data: { title: "New Chat", titleSource: "auto" } });
   const input = await readChatRequest(chatRequest({ chatId: owned.id, messages: [ui("title-user", "user", "帮我制定一周学习计划")] }));
-  await persistChatResponse({ input, conversation: { chat: owned, regenerationSnapshot: null }, responseMessage: ui("assistant-title", "assistant", "好的"), isAborted: false, generationFailed: false });
+  await prepareChatPersistence(input);
   const after = await db.chat.findUnique({ where: { id: owned.id } });
-  assert.match(after.title, /帮我制定一周学习计划|帮我制定一周/);
+  assert.equal(after.title, "帮我制定一周学习计划");
+  assert.equal(after.titleSource, "auto");
 });
 
 test("web search refuses to run after cancellation", async () => {

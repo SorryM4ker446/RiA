@@ -218,7 +218,7 @@ const TOOL_CATALOG: Record<string, AnyToolDescriptor> = {
       const { listSubagents, readSubagent } = await import("@/lib/agents/subagents");
       const seconds = (view: { startedAt: string; finishedAt: string | null }) => Math.round(((view.finishedAt ? Date.parse(view.finishedAt) : Date.now()) - Date.parse(view.startedAt)) / 1000);
       if (input.id) {
-        const view = await readSubagent(chatId, input.id, { deliver: true });
+        const view = await readSubagent(chatId, input.id);
         if (!view) throw new ApiError({ code: "NOT_FOUND", message: t("server.subagent.notFound") });
         return { id: view.id, title: view.title, status: view.status, background: view.background, seconds: seconds(view), currentStep: view.currentStep, toolCalls: view.toolCalls,
           ...(view.status === "running" ? {} : { report: view.report, notRun: view.notRun, error: view.error }) };

@@ -485,3 +485,26 @@ test("an explicit missing executable fails visibly without loading a same-named 
     if (previousModules === undefined) delete process.env.PSModulePath; else process.env.PSModulePath = previousModules;
   }
 });
+
+test("objects a command prints as a table reach its output, and exit status and errors read as before", { skip: !win && "PowerShell formatting is Windows-only" }, async () => {
+  const grant = await folder();
+  writeFileSync(path.join(grant.realPath, "notes.txt"), "release 1.2\n");
+  const run = async (command: string) => runTerminalCommand(await prepared(grant.id, command));
+  // Selected properties print as a table; the shell used to exit before writing it, leaving one blank line.
+  const table = await run("Get-ChildItem -Force | Select-Object Name,Length");
+  assert.equal(table.status, "completed");
+  assert.match(table.stdout, /Name\s+Length/);
+  assert.match(table.stdout, /notes\.txt\s+\d+/);
+  assert.match((await run("Get-Process -Id $PID | Select-Object Id,ProcessName")).stdout, /powershell/i);
+  assert.match((await run("Get-ChildItem -Force")).stdout, /notes\.txt/);
+  assert.equal((await run("'plain text'")).stdout.trim(), "plain text");
+  // How a command ended is unchanged: a native exit code, a thrown error, an error written under Stop.
+  const exited = await run("cmd /c exit 3");
+  assert.deepEqual([exited.status, exited.exitCode], ["failed", 3]);
+  const thrown = await run("throw 'broken'");
+  assert.deepEqual([thrown.status, thrown.exitCode], ["failed", 1]);
+  assert.match(thrown.stderr, /broken/);
+  const written = await run("Write-Error 'not found'");
+  assert.equal(written.exitCode, 1);
+  assert.match(written.stderr, /not found/);
+});

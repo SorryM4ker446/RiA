@@ -6,6 +6,7 @@ import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "reac
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import remarkCjkFriendly from "remark-cjk-friendly";
 type PluggableList = NonNullable<Options["rehypePlugins"]>;
 import { cn } from "@/lib/utils/cn";
 import { t } from "@/lib/locale";
@@ -147,7 +148,9 @@ const MarkdownBlock = memo(function MarkdownBlock({ text, allowImages, index, wr
   const math = useLazy(mathPlugins, !writing && hasMath(text));
   // Formulas wait until the block is written; code is highlighted as it comes. A fence may be indented, as in a list item.
   const hljs = useLazy(highlighter, /^[ \t]*(```|~~~)/m.test(text));
-  const remarkPlugins = useMemo<PluggableList>(() => math ? [remarkGfm, [math.remarkMath, { singleDollarTextMath: true }]] : [remarkGfm], [math]);
+  // CJK-friendly emphasis: "**总体判断：**项目" is bold, as a reader expects, though CommonMark alone will not
+  // close "**" after a full-width colon or stop when a letter follows. Only that case changes.
+  const remarkPlugins = useMemo<PluggableList>(() => math ? [remarkGfm, remarkCjkFriendly, [math.remarkMath, { singleDollarTextMath: true }]] : [remarkGfm, remarkCjkFriendly], [math]);
   // The formula renderer runs after the sanitiser, so what it draws is not stripped; it escapes what it is given.
   const rehypePlugins = useMemo<PluggableList>(() => words ? [sanitize, [rehypeStreamWords, { block: index }]] : math ? [sanitize, math.rehypeKatex] : [sanitize], [words, index, math]);
   const components = useMemo(() => blockComponents(writing, hljs), [writing, hljs]);

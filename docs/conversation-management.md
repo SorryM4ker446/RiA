@@ -59,7 +59,7 @@ All operations require normal ownership/session and desktop Host/Cookie checks. 
 | --- | --- |
 | `GET /api/conversations` | Optional `q`, `tag`, `state=active\|archived\|all`, `limit=1..100` and opaque `cursor`; defaults to active, 30 rows; returns `data` and `pageInfo` |
 | `GET /api/conversations/:id` | Summary with `pinned`, `archived`, `tags`, timestamps and `messageCount` |
-| `PATCH /api/conversations/:id` | At least one of `title`, boolean `pinned`, boolean `archived`, string-array `tags`, or `workspaceGrantId` (an active directory grant ID, or `null` to clear; an unknown or withdrawn grant returns `409 CONFLICT`); returns updated `data`, including `workspaceGrantId`; title keeps the existing 60-character display truncation |
+| `PATCH /api/conversations/:id` | At least one of `title`, boolean `pinned`, boolean `archived`, string-array `tags`, or `workspaceGrantId` (an active directory grant ID, or `null` to clear; an unknown or withdrawn grant returns `409 CONFLICT`); returns updated `data`, including `workspaceGrantId`; title keeps the existing 60-character display truncation, and a `title` is the user's name for it (`titleSource: "manual"`) unless sent with `titleSource: "auto"` (the page's placeholder from the first message) |
 | `POST /api/conversations/bulk-delete` | `{ "ids": ["chat-id"], "confirm": true }`; 1–50 unique IDs, 16 KiB body; returns `data.deletedCount` |
 | `GET /api/conversations/:id/export?format=markdown` | `markdown` (default) or `json`; attachment response with safe filename, `Cache-Control: no-store` and `X-Content-Type-Options: nosniff` |
 
@@ -123,9 +123,43 @@ A draft is cleared only once the turn actually produced an answer. A send that f
 
 Drafts and the conversation/task panel layout are kept in the browser's local storage under `ria.chat.*` keys. Values saved by builds from before the RiA rename, under `private-ai.chat.*`, are read the first time they are needed and moved to the current keys; the panel layout is applied from either key before the first paint. A value already saved under the current key wins over the old one.
 
+## Conversation titles
+
+A new conversation is titled with its first message until a short title is written for it
+(`src/lib/chat/conversation-title.ts`). Once a turn of the user's is answered, the internal
+sub-agent model reads the recent conversation (up to eight messages, about 1,800 characters)
+and writes a title of at most 36 characters in the user's language, or none while the
+conversation is only a greeting or a vague opener; it is asked again after the next message,
+and after three messages with nothing to name the first message stays the title. The title is
+written once and kept: it names the task the conversation was opened for. Naming never holds
+up the answer (it starts when the turn ends, outside the turn's own place for calls), and a
+failed or malformed reply leaves the title as it was. When to name was compared with a real
+model (GPT-6 Luna) on a greeting before the request, a clear task, a request made over several
+turns, a long first message, in Chinese and English: naming from the first message alone
+titled greetings ("请求帮助", "General conversation"), while asking after each message with
+leave to wait named every one by its task. This follows Codex's thread titles (a short
+model-written task title, with the first message standing in until then) and Claude Code's
+session names.
+
+`chats.titleSource` says who the title is from: `auto` for the placeholder made from the first
+message (the only title a model may replace), `named` once a title was written or given up on,
+or for a title from elsewhere (a task's name, an older conversation, a restored backup), and
+`manual` once the user renamed it. Renaming always wins, also while a title is being written.
+`POST /api/conversations` keeps a given `title` as the user's unless it comes with
+`titleSource: "auto"` (the page's own placeholder). Sending no title creates an empty
+conversation with a placeholder. The first saved user message can fill it in the same
+transaction. `PATCH` with a `title` marks it `manual` unless the request specifies the
+legacy automatic placeholder update. A placeholder keeps at most 36 characters of the
+first message (marked as cut), as long as a written title; a title the user gives keeps up to 60, and the top bar keeps room for about seven characters of the
+title in a narrow window, showing it in full on hover and in its keyboard-accessible menu.
+
 ## Stopping a turn
 
 While a turn is running, the send control is replaced by **stop**. Stopping asks the service to stop the turn, wherever it was started: whatever the model produced stays on screen and is stored once, as an interrupted answer. Leaving the conversation does not stop it. Stopping does not mean the provider stopped billing for what it had already produced.
+
+A stop carries the identity of the turn shown when it was pressed. The request that starts a turn and any window that reconnects to it share that identity, including turns without tools and repeated sends of the same message. A late stop leaves the next turn running.
+
+Another window's changes reach this one when it is not reading a turn of its own: a conversation that was empty here gets its first turn, and a message shown here that was updated elsewhere (an approval answered in another window, an answer finished there) is replaced by the saved version. A history read that comes back after something happened here (an answer started or ended) is older than what is shown and replaces nothing.
 
 ## Keyboard and copying
 

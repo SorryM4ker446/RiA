@@ -180,9 +180,9 @@ export function ServiceSettings() {
                         { id: "site-name", label: t("settings.siteNameLabel"), value: openrouterSiteName, onChange: setOpenrouterSiteName, placeholder: "RiA Desktop" },
                         { id: "http-referrer", label: "OpenRouter HTTP Referrer", value: openrouterHttpReferer, onChange: setOpenrouterHttpReferer, placeholder: t("settings.refererPlaceholder") },
                       ].map(field => <Field key={field.id} orientation="horizontal" className="settings-field"><FieldContent><FieldLabel htmlFor={field.id}>{field.label}</FieldLabel></FieldContent><Input className="min-w-0 flex-1" id={field.id} onChange={event => field.onChange(event.target.value)} placeholder={field.placeholder} value={field.value} /></Field>)}
-                      <Field orientation="horizontal" className="settings-field">
-                        <FieldContent><FieldLabel htmlFor="web-fake-ip-doh">{t("settings.webFakeIpDoh")}</FieldLabel><FieldDescription id="web-fake-ip-doh-hint">{t("settings.webFakeIpDohHint")}</FieldDescription></FieldContent>
+                      <Field orientation="horizontal" className="settings-field settings-check-field">
                         <Checkbox id="web-fake-ip-doh" aria-describedby="web-fake-ip-doh-hint" checked={webFakeIpDoh} disabled={isSaving} onCheckedChange={checked => setWebFakeIpDoh(checked === true)} />
+                        <FieldContent><FieldLabel htmlFor="web-fake-ip-doh">{t("settings.webFakeIpDoh")}</FieldLabel><FieldDescription id="web-fake-ip-doh-hint">{t("settings.webFakeIpDohHint")}</FieldDescription></FieldContent>
                       </Field>
                     </FieldGroup>
                   </details>

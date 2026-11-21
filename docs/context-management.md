@@ -44,6 +44,21 @@ are not marked, since a cache write costs more than ordinary input and they
 would not read it back. Usage records do not store cache read or write counts;
 the cost a provider reports already reflects its cache discount.
 
+## Repeated reads
+
+A file read the model already has, word for word, earlier in what it is sent is sent
+again as a short note: a later `readProjectFile` result with the same folder, file
+version (content hash) and lines as an earlier one still shown whole says
+`unchanged`, its path, hash and line range, and the call it repeats, in place of the
+text. The call keeps its result, the stored conversation and execution record keep
+the whole read, and the note is the same on every step, so a provider's prompt cache
+keeps matching. A read of changed content, other lines or another folder is sent
+whole, and so is one whose earlier copy is no longer whole in what is sent (folded
+into the summary or cut to an excerpt) (`src/lib/chat/step-context.ts`). In the same
+spirit `readDocument` sends its excerpt once: `pages` says which page each part of it
+comes from and the document offset where that part starts, which is also where a
+read can continue.
+
 ## Request budgets
 
 Input budget is context capacity minus output reservation and a safety margin of

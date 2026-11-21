@@ -17,6 +17,8 @@ import { terminalRuntimeAllowed } from "@/lib/terminal/schema";
 import { t } from "@/lib/locale";
 export const updateConversationSchema = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
+  // A title the page made from the first message, which a model-written one may still replace; any other is the user's.
+  titleSource: z.literal("auto").optional(),
   pinned: z.boolean().optional(),
   archived: z.boolean().optional(),
   ephemeral: z.boolean().optional(),
@@ -49,15 +51,17 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
   const selectedAssistant = input.assistantTemplateId ? await resolveAssistant(input.assistantTemplateId) : null;
   if (input.workspaceGrantId !== undefined) await assertSelectableWorkspace(input.workspaceGrantId);
   const updated = await db.$transaction(async tx => {
-    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, assistantConfig: true, ephemeral: true } });
+    const current = await tx.chat.findFirst({ where: { id }, select: { title: true, titleSource: true, assistantConfig: true, ephemeral: true } });
     if (!current) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     const assistant = selectedAssistant;
     // Only a placeholder or the previous template's default name follows the
     // template. A conversation renamed by the user keeps its own title.
     const previousAssistant = readAssistantSnapshot(current.assistantConfig);
-    const followsTemplate = ["new chat", "新会话", "untitled"].includes(current.title.trim().toLowerCase())
-      || (previousAssistant !== null && current.title === truncateTitle(previousAssistant.name));
-    const title = input.title ?? (input.assistantTemplateId !== undefined && followsTemplate ? assistant?.name ?? "New Chat" : undefined);
+    const placeholder = ["new chat", "新会话", "untitled"].includes(current.title.trim().toLowerCase());
+    const followsTemplate = current.titleSource === "auto" && (placeholder
+      || (previousAssistant !== null && current.title === truncateTitle(previousAssistant.name)));
+    const requestedTitle = input.titleSource === "auto" && (current.titleSource !== "auto" || !placeholder) ? undefined : input.title;
+    const title = requestedTitle ?? (input.assistantTemplateId !== undefined && followsTemplate ? assistant?.name ?? "New Chat" : undefined);
     // What was said while memory was off stays out of it once memory is on again.
     const ephemeral = input.ephemeral ?? (input.assistantTemplateId !== undefined && assistant ? !assistant.usesMemory : current.ephemeral);
     const chat = await tx.chat.update({ where: { id }, data: {
@@ -67,7 +71,7 @@ export async function updateConversation(id: string, input: z.infer<typeof updat
         ...(assistant ? { ephemeral: !assistant.usesMemory } : {}),
         historyRevision: { increment: 1 }, summary: null, summaryUpToMessageId: null, summaryModelId: null, summaryRevision: null, summaryState: null,
       } : {}),
-      ...(title !== undefined ? { title: truncateTitle(title) } : {}),
+      ...(title !== undefined ? { title: truncateTitle(title), titleSource: input.title !== undefined && input.titleSource !== "auto" ? "manual" : "auto" } : {}),
       ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
       ...(input.archived !== undefined ? { archived: input.archived } : {}),
       ...(input.ephemeral !== undefined ? { ephemeral: input.ephemeral } : {}),

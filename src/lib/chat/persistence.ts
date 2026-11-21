@@ -1,13 +1,14 @@
 import { thinkingMarks, type ThinkingRecord } from "./thinking";
-import { stepsOfMessage } from "@/lib/ai/ui-message";
+import { placeholderTitle, stepsOfMessage } from "@/lib/ai/ui-message";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/db";
+import { deliverSubagentReports, settleHeldSubagentReports } from "@/lib/agents/subagents";
 import { t } from "@/lib/locale";
 import {
   encodePersistedAssistantToolMessage,
   encodePersistedUserMessage,
   getReasoningFromUIMessage,
   getTextFromUIMessage,
-  truncateTitle,
   type PersistedAssistantToolItem
 } from "@/lib/ai/ui-message";
 import { approvalIsScheduled, claimToolApproval, createChat, getChat, getRegenerationSnapshot, releaseUnclaimedToolApproval, saveChatMessage, saveRegeneratedResponse } from "@/lib/chat/store";
@@ -37,14 +38,17 @@ async function getOrCreateChat(params: {
       throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
     }
 
+    // Made from the first message: a placeholder a model-written title may replace.
     return createChat({
       chatId: requestedChatId,
       title: fallbackTitle,
+      titleSource: "auto",
     });
   }
 
   return createChat({
     title: fallbackTitle,
+    titleSource: "auto",
   });
 }
 
@@ -73,12 +77,18 @@ function getToolItemsFromResponseMessage(message: UIMessage): PersistedAssistant
       ...("approval" in part && part.approval ? { approval: part.approval } : {}),
     }));
 }
-export async function prepareChatPersistence(input: ChatRequest, options: { deferApproval?: boolean } = {}) {
+/**
+ * deliverSubagents: background sub-agent reports the new message carries (a
+ * woken turn's notice). They count as given only if the message is saved, in
+ * the same transaction, and the save is refused when another reader gave any
+ * of them first.
+ */
+export async function prepareChatPersistence(input: ChatRequest, options: { deferApproval?: boolean; deliverSubagents?: string[] } = {}) {
   const { body, messages, latestUserMessage, isApprovalResume, requestedChatId } = input;
   const titleSeed = latestUserMessage?.text || "New Chat";
   const chat = await getOrCreateChat({
     requestedChatId,
-    fallbackTitle: truncateTitle(titleSeed),
+    fallbackTitle: placeholderTitle(titleSeed),
   });
 
   let previousRunIds: string[] = [];
@@ -103,6 +113,7 @@ export async function prepareChatPersistence(input: ChatRequest, options: { defe
       content: userContent,
       status: "success",
       clientMessageId: latestUserMessage.id,
+      ...(options.deliverSubagents?.length ? { alongside: (client: Prisma.TransactionClient) => deliverSubagentReports(client, options.deliverSubagents!) } : {}),
     });
   }
 
@@ -131,7 +142,7 @@ export async function claimChatApproval(chatId: string, message: UIMessage) {
     throw error;
   }
 }
-export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; unavailableTools?: string[]; runId?: string | null; contextReport?: unknown; scheduled?: boolean }) {
+export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; unavailableTools?: string[]; runId?: string | null; contextReport?: unknown; scheduled?: boolean; heldReports?: string[] }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -179,6 +190,8 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
 
     if (!content.trim()) return;
 
+    const reports = params.heldReports ?? [];
+    const alongside = reports.length ? (client: Prisma.TransactionClient) => settleHeldSubagentReports(reports, client) : undefined;
     if (regenerationSnapshot && latestUserMessage?.id) {
       if (isAborted || generationFailed) return;
       await saveRegeneratedResponse({
@@ -186,6 +199,7 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
         userMessageId: latestUserMessage.id,
         content,
         clientMessageId: responseMessage.id,
+        alongside,
       });
     } else {
       await saveChatMessage({
@@ -195,14 +209,10 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
         status: isAborted || generationFailed ? "error" : "success",
         clientMessageId: responseMessage.id,
         updateExisting: true,
+        alongside,
       });
     }
 
-    // A rename made while the answer streamed must survive; only a conversation
-    // still holding the auto-generated placeholder gets named from the message.
-    if (chat.title === "New Chat" && latestUserMessage?.text) {
-      await db.chat.updateMany({ where: { id: chat.id, title: "New Chat" }, data: { title: truncateTitle(latestUserMessage.text) } });
-    }
     await db.chat.update({
       where: { id: chat.id },
       data: {

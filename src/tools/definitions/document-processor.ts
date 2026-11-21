@@ -6,7 +6,7 @@ import { loadAttachmentDocument, loadProcessorDocument } from "@/lib/document-pr
 export const documentProcessorTools: Record<string, AnyToolDescriptor> = {
   readDocument: {
     id: "readDocument", displayName: "读取文档", description: "打开知识库里的文档，读需要的那部分。",
-    modelDescription: "Read extracted document text from the user's knowledge library. Find documentId using searchKnowledge first. Offset and limit are UTF-16 character positions over pages joined by two newlines. Returns a bounded excerpt and nextOffset when there is more. Never use it to read arbitrary OS paths or claim to inspect the original layout or images.",
+    modelDescription: "Read extracted document text from the user's knowledge library. Find documentId using searchKnowledge first. Offset and limit are UTF-16 character positions over pages joined by two newlines. Returns a bounded excerpt once in text, pages naming the page each part of it comes from (pageNumber, and the document offset where that part starts), and nextOffset when there is more. Never use it to read arbitrary OS paths or claim to inspect the original layout or images.",
     modeSupport: ["chat"],
     surface: { category: "knowledge", user: { run: "model", hint: t("tools.readDocument.hint") }, template: "selectable" },
     inputSchema: documentReadSchema,
@@ -15,7 +15,9 @@ export const documentProcessorTools: Record<string, AnyToolDescriptor> = {
       const document = await loadProcessorDocument(parsed.documentId, { collections: documentCollections }); signal?.throwIfAborted();
       const end = Math.min(document.content.length, parsed.offset + parsed.limit);
       let position = 0;
-      const pages = document.pages.flatMap(page => { const start = position; position += page.text.length + 2; return start < end && start + page.text.length > parsed.offset ? [{ pageNumber: page.pageNumber, text: page.text.slice(Math.max(0, parsed.offset - start), Math.max(0, end - start)) }] : []; });
+      // Where each page's part of the excerpt starts. The excerpt itself is sent once, in text: it used to be
+      // repeated page by page as well, which sent the same words to the model twice.
+      const pages = document.pages.flatMap(page => { const start = position; position += page.text.length + 2; return start < end && start + page.text.length > parsed.offset ? [{ pageNumber: page.pageNumber, offset: Math.max(start, parsed.offset) }] : []; });
       return { documentId: parsed.documentId, filename: document.filename, contentHash: document.source.contentHash, characterCount: document.content.length, offset: parsed.offset, text: document.content.slice(parsed.offset, end), pages, nextOffset: end < document.content.length ? end : null, notes: conversionNotes() };
     },
   },

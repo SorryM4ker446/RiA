@@ -32,6 +32,8 @@ import type { CallSource } from "@/lib/models/call-context";
 
 export type UnattendedOutcome = { status: "succeeded" | "failed" | "waiting_approval"; errorCode?: string };
 
+class ApprovalPending extends Error {}
+
 /** How many of the conversation's latest messages go with the request; the rest is read from storage. */
 const SENT_MESSAGES = 100;
 
@@ -87,6 +89,8 @@ export async function runUnattendedTurn(params: {
   source?: TurnSource;
   /** The message is an automatic notice, not something the user said; the conversation shows it as one. */
   notice?: MessageNotice;
+  /** Background sub-agent reports the message carries; they count as given only once it is saved. */
+  deliverSubagents?: string[];
 }): Promise<UnattendedOutcome> {
   try {
     for (;;) {
@@ -97,18 +101,22 @@ export async function runUnattendedTurn(params: {
         // Another turn may have begun as that one ended.
         if (isTurnLive(params.chatId)) continue;
       }
-      // That turn may have ended asking for an approval, which a new message would pass by.
-      if (await awaitsApproval(params.chatId)) return { status: "waiting_approval" };
-      const { messages } = await storedFromSummary(params.chatId);
-      const input = await parseChatRequest({
-        chatId: params.chatId,
-        trigger: "submit-message",
-        messages: [...messages.slice(-(SENT_MESSAGES - 1)), { id: generateId(), role: "user", parts: [{ type: "text", text: params.text }], ...(params.notice ? { metadata: { notice: params.notice } } : {}) }],
-      });
       let response: Response;
       try {
-        response = await holdTurn(params.chatId, signal => answerChatRequest(input, signal, { callSource: params.callSource, requestNote: params.requestNote }), { source: params.source ?? "task", outer: params.signal, settle: markTurnAnswered });
+        response = await holdTurn(params.chatId, async signal => {
+          // Read only after acquiring the turn. Another window may have
+          // finished and left an approval pending between the wait and here.
+          if (await awaitsApproval(params.chatId)) throw new ApprovalPending();
+          const { messages } = await storedFromSummary(params.chatId);
+          const input = await parseChatRequest({
+            chatId: params.chatId,
+            trigger: "submit-message",
+            messages: [...messages.slice(-(SENT_MESSAGES - 1)), { id: generateId(), role: "user", parts: [{ type: "text", text: params.text }], ...(params.notice ? { metadata: { notice: params.notice } } : {}) }],
+          });
+          return answerChatRequest(input, signal, { callSource: params.callSource, requestNote: params.requestNote, deliverSubagents: params.deliverSubagents });
+        }, { source: params.source ?? "task", outer: params.signal, settle: markTurnAnswered });
       } catch (error) {
+        if (error instanceof ApprovalPending) return { status: "waiting_approval" };
         // Another turn began between the wait and the start: wait for that one too.
         if (error instanceof ApiError && error.code === "CONFLICT" && isTurnLive(params.chatId)) continue;
         throw error;

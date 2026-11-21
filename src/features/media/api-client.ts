@@ -18,6 +18,7 @@ export const mediaApi = {
   list(filters: Filters, cursor?: string) { return request<{ data: Asset[]; pageInfo: { nextCursor: string | null } }>(`/api/media/library?${new URLSearchParams({ ...filters, ...(cursor ? { cursor } : {}) })}`); },
   detail: (id: string) => request<{ data: AssetDetail }>(`${path(id)}/details`),
   delete: (id: string) => request<{ data: { freedBytes: number } }>(path(id), { method: "DELETE" }),
+  locate: (id: string) => request<{ data: { absolutePath: string } }>(`${path(id)}/locate`, { method: "POST" }),
   regenerate: (id: string) => request<{ asset: { assetId: string } }>(`${path(id)}/regenerate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true }) }),
   async download(id: string) {
     const url = `${path(id)}?download=1`;

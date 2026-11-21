@@ -124,7 +124,7 @@ export const readTerminalLogInputSchema = z.strictObject({
   logId: z.uuid().describe("The id of a terminal log referenced by an earlier runTerminalCommand result."),
   stream: z.enum(["stdout", "stderr"]).default("stdout"),
   startLine: z.number().int().min(1).default(1).describe("First 1-based line to return."),
-  lineCount: z.number().int().min(1).max(TERMINAL_LOG_LIMITS.readLines).default(200),
+  lineCount: z.number().int().min(1).max(TERMINAL_LOG_LIMITS.readLines).default(200).describe(`Lines to return; with search, the most matching lines to return (at most ${TERMINAL_LOG_LIMITS.searchMatches}).`),
   search: z.string().min(1).max(200).optional().describe("Case-insensitive text to find; returns matching line numbers from startLine instead of a range."),
 });
 export type ReadTerminalLogInput = z.infer<typeof readTerminalLogInputSchema>;
@@ -149,7 +149,8 @@ export async function readTerminalLog(input: ReadTerminalLogInput, authorize: (g
       if (needle) {
         if (!raw.toLocaleLowerCase().includes(needle)) continue;
         matches++;
-        if (matches > TERMINAL_LOG_LIMITS.searchMatches) { nextLine = lineNumber; continue; }
+        // As many matches as were asked for, and never more than a search returns; the next one is where to continue.
+        if (matches > Math.min(input.lineCount, TERMINAL_LOG_LIMITS.searchMatches)) { nextLine = lineNumber; continue; }
       } else if (lines.length >= input.lineCount) { nextLine = lineNumber; continue; }
       const text = raw.length > TERMINAL_LOG_LIMITS.lineCharacters ? `${raw.slice(0, TERMINAL_LOG_LIMITS.lineCharacters)} … [line truncated]` : raw;
       bytes += Buffer.byteLength(text) + 1;

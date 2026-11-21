@@ -107,6 +107,41 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
     const items = [{ content: "读取现有配置", status: "completed" }, { content: "修改主题颜色", status: "in_progress" }, { content: "运行测试", status: "pending" }];
     return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "plan-call-1", type: "function", function: { name: "updatePlan", arguments: JSON.stringify({ items }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
   }, { headers: { "content-type": "text/event-stream" } }).delay(4_000).persist();
+  // The system prompt as text, whether sent as a string or as parts.
+  const systemOf = (body: { messages?: { role: string; content: unknown }[] }) => (body.messages ?? []).filter(message => message.role === "system")
+    .map(message => typeof message.content === "string" ? message.content : Array.isArray(message.content) ? message.content.map((part: { text?: string }) => part.text ?? "").join(" ") : "").join(" ");
+  // Conversation titles, kept apart from the recorded provider calls. A conversation is named only when it
+  // asks to be (OFFLINE_TITLE…), so every other test keeps the title made from its first message: none while
+  // the user has only greeted, then the latest request's first words. OFFLINE_TITLE_FAIL answers with no JSON.
+  provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
+    const body = JSON.parse(String(raw));
+    return body.stream !== true && systemOf(body).startsWith("Write a concise, single-line title") && !JSON.stringify(body.messages).includes("OFFLINE_TITLE_SLOW");
+  } }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    const prompt = JSON.stringify(body.messages);
+    const requests = [...prompt.matchAll(/<message role=\\"user\\">([^<]*)<\/message>/g)].map(match => match[1].trim());
+    const latest = [...requests].reverse().find(text => !/^(你好|hi|hello|hey)[!！。]?$/i.test(text)) ?? "";
+    const content = prompt.includes("OFFLINE_TITLE_FAIL") ? "no title" : JSON.stringify({ title: prompt.includes("OFFLINE_TITLE") && latest ? `离线标题·${latest.replace(/OFFLINE_\w+\s*/g, "").slice(0, 8)}` : "" });
+    return JSON.stringify({ id: "offline-title", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }, choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }] });
+  }).persist();
+  // A title for a conversation that says OFFLINE_TITLE_SLOW takes a few seconds, so it can be renamed meanwhile.
+  provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
+    const body = JSON.parse(String(raw));
+    return body.stream !== true && systemOf(body).startsWith("Write a concise, single-line title") && JSON.stringify(body.messages).includes("OFFLINE_TITLE_SLOW");
+  } }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    return JSON.stringify({ id: "offline-slow-title", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }, choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify({ title: "迟到的离线标题" }) }, finish_reason: "stop" }] });
+  }).delay(3_000).persist();
+  // A picture asked for by OFFLINE_DRAW_TEXT takes a moment to make, so its place in the answer can be seen while it is made.
+  provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
+    const body = JSON.parse(String(raw));
+    return body.stream !== true && body.modalities?.includes("image") && JSON.stringify(body.messages).includes("slow picture of a lighthouse");
+  } }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    process.send({ type: "provider-call", stream: false, messages: body.messages, toolCount: 0 });
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=";
+    return JSON.stringify({ id: "offline-slow-image", model: body.model, usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20, cost: 0.0123 }, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${png}` } }] }, finish_reason: "stop" }] });
+  }).delay(2_500).persist();
   // OFFLINE_SLOW_PROVIDER: the provider takes a few seconds to answer, so the call stays in flight and holds its place meanwhile.
   provider.intercept({ path: "/api/v1/chat/completions", method: "POST", body: raw => {
     const body = JSON.parse(String(raw));
@@ -222,13 +257,22 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
         }
         if (prompt.includes("OFFLINE_SUBAGENT")) content = prompt.includes("OFFLINE_SUBAGENT_BG") ? "离线回答：已经交给后台子代理，报告回来后再告诉你。" : "离线回答：子代理已经交回报告。";
         if (prompt.includes("[Automatic notice from RiA")) content = "离线回答：后台子代理的报告到了。";
+        // OFFLINE_DRAW_TEXT: a few words, a picture made in the same step, then more words once it is back.
+        if (prompt.includes("OFFLINE_DRAW_TEXT") && !sinceRequest.some(message => message.role === "tool")) {
+          const args = { prompt: "A slow picture of a lighthouse at dusk", aspectRatio: "1:1" };
+          return [
+            { ...base, choices: [{ index: 0, delta: { role: "assistant", content: "先说明一下：要画一座灯塔。" }, finish_reason: null }] },
+            { ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `draw-text-call-${Date.now()}`, type: "function", function: { name: "generateImage", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] },
+          ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+        }
+        if (prompt.includes("OFFLINE_DRAW_TEXT")) content = "画好了，这是灯塔。后面再补一句说明。";
         // OFFLINE_DRAW: one picture made with generateImage, then an answer that says whether the picture came back to look at.
         if (prompt.includes("OFFLINE_DRAW") && !sinceRequest.some(message => message.role === "tool")) {
           if (!body.tools?.some(tool => tool.function?.name === "generateImage")) throw new Error("generateImage was not offered to the fixture model");
           const args = { prompt: "A cat in a white spacesuit floating above the Moon, studio light", aspectRatio: "1:1" };
           return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: `draw-call-${Date.now()}`, type: "function", function: { name: "generateImage", arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
         }
-        if (prompt.includes("OFFLINE_DRAW")) {
+        if (prompt.includes("OFFLINE_DRAW") && !prompt.includes("OFFLINE_DRAW_TEXT")) {
           const result = JSON.stringify(sinceRequest.filter(message => message.role === "tool").at(-1)?.content ?? "");
           content = /execution-denied|denied|用户拒绝|Rejected by user/i.test(result) ? "离线回答：你没有批准，没画。" : `离线回答：图画好了${/image_url|data:image/.test(result) ? "，我看过了" : ""}。`;
         }

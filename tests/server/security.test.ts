@@ -21,7 +21,7 @@ const { proxy, config: proxyConfig } = await import("@/proxy");
 const { readChatRequest } = await import("@/lib/chat/request");
 const routes: Record<string, any> = {};
 for (const name of ["backups", "backups/[id]", "backups/import", "backups/import/[id]", "models", "usage"]) routes[name] = await import(`@/app/api/${name}/route`);
-for (const name of ["chat", "image", "video", "tools/run", "tools", "memory", "retrieval", "knowledge", "knowledge/[id]", "tasks", "tasks/[id]", "tasks/[id]/run", "tasks/[id]/stop", "tasks/runs", "tasks/notifications", "conversations", "conversations/bulk-delete", "conversations/[id]/export", "conversations/[id]", "conversations/[id]/messages", "conversations/[id]/messages/[messageId]", "media", "media/library", "media/[id]/details", "media/[id]/regenerate", "media/upload", "media/cleanup", "media/[id]", "local-access", "health"]) {
+for (const name of ["chat", "image", "video", "tools/run", "tools", "memory", "retrieval", "knowledge", "knowledge/[id]", "tasks", "tasks/[id]", "tasks/[id]/run", "tasks/[id]/stop", "tasks/runs", "tasks/notifications", "conversations", "conversations/bulk-delete", "conversations/[id]/export", "conversations/[id]", "conversations/[id]/messages", "conversations/[id]/messages/[messageId]", "media", "media/library", "media/[id]/details", "media/[id]/regenerate", "media/[id]/locate", "media/upload", "media/cleanup", "media/[id]", "local-access", "health"]) {
   routes[name] = await import(`@/app/api/${name}/route`);
 }
 let cookie;

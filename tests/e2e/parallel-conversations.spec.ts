@@ -316,3 +316,72 @@ test("a message sent before leaving its conversation does not come back into its
   await row(sidebar, "别处").click();
   await expect(box).toHaveValue("还没写完");
 });
+
+test("a stop delayed in a second window leaves the next turn running", async ({ page, app, context }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const id = await conversation(page, app.origin, "停下再问");
+  await page.goto(`${app.origin}/chat?conversationId=${id}`);
+  await expect(title(page)).toHaveText("停下再问");
+  await send(page, LONG);
+  await expect(transcript(page)).toContainText("离线回答：w0");
+  const other = await context.newPage();
+  await other.goto(`${app.origin}/chat?conversationId=${id}`);
+  await expect(transcript(other)).toContainText("离线回答：w0");
+  const stopPath = `/api/chat/${id}/stream`;
+  let release!: () => void;
+  const wait = new Promise<void>(resolve => { release = resolve; });
+  await other.route(url => url.pathname === stopPath, async route => {
+    if (route.request().method() === "DELETE") await wait;
+    await route.continue();
+  });
+  try {
+    const requested = other.waitForRequest(request => request.method() === "DELETE" && new URL(request.url()).pathname === stopPath);
+    await other.getByRole("button", { name: "停止", exact: true }).click();
+    expect(new URL((await requested).url()).searchParams.get("turnId")).toMatch(/^[a-f0-9-]{36}$/);
+    await page.getByRole("button", { name: "停止", exact: true }).click();
+    await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+    await send(page, `${LONG} again`);
+    await expect.poll(async () => (await summaryOf(page, app.origin, id)).answering).toBe(true);
+    const late = other.waitForResponse(response => response.request().method() === "DELETE" && new URL(response.url()).pathname === stopPath);
+    release();
+    expect((await (await late).json()).data.stopped).toBe(false);
+  } finally {
+    release();
+    await other.close();
+  }
+  await expect(answer(page)).toContainText("again", { timeout: 30_000 });
+  await expect.poll(async () => (await messagesOf(page, app.origin, id)).map(message => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
+  expect((await messagesOf(page, app.origin, id))[3].content).toContain("again");
+});
+
+test("an approval answered in one window shows answered in the other, which follows the continuation without writing it twice", async ({ page, app, context }) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const id = await conversation(page, app.origin, "两个窗口");
+  await page.goto(`${app.origin}/chat?conversationId=${id}`);
+  await expect(title(page)).toHaveText("两个窗口");
+  await send(page, "OFFLINE_SAVE_ENTRY KEY=两个窗口 VALUE=从第一个窗口批准。");
+  const card = (on: Page) => on.getByRole("region", { name: "操作审批", exact: true });
+  await expect(card(page).getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+
+  const other = await context.newPage();
+  await other.goto(`${app.origin}/chat?conversationId=${id}`);
+  await expect(title(other)).toHaveText("两个窗口");
+  await expect(card(other).getByRole("button", { name: "批准", exact: true })).toBeEnabled();
+
+  await card(page).getByRole("button", { name: "批准", exact: true }).click();
+  await expect(card(page)).toBeHidden();
+  // The other window hears of it and shows the same: no approval left to give, and the answer that followed.
+  await expect(card(other)).toBeHidden({ timeout: 15_000 });
+  await expect.poll(async () => (await messagesOf(page, app.origin, id)).map(message => message.role)).toEqual(["user", "assistant"]);
+  await expect.poll(async () => (await summaryOf(page, app.origin, id)).answering).toBe(false);
+  const saved = (await messagesOf(page, app.origin, id))[1].content;
+  await expect(transcript(other).locator('[data-message-role="assistant"]')).toHaveCount(1);
+  await expect(transcript(page).locator('[data-message-role="assistant"]')).toHaveCount(1);
+  // Reloaded, it shows what was saved, once.
+  await other.reload();
+  await expect(transcript(other).locator('[data-message-role="assistant"]')).toHaveCount(1);
+  expect((await messagesOf(page, app.origin, id))[1].content).toBe(saved);
+  await other.close();
+});

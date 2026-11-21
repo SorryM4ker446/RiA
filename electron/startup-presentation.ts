@@ -33,9 +33,11 @@ export function createStartupPresentation(window: BrowserWindow, options: { enab
     if (++navigations > 1) { expired = true; reveal(false); }
   }
   function dispose() {
+    if (disposed) return;
     disposed = true;
     if (timer) clearTimeout(timer);
     window.removeListener("ready-to-show", ready);
+    window.removeListener("closed", dispose);
     contents.removeListener("did-start-navigation", navigation);
     for (const resolve of waiters) resolve(false);
     waiters.clear();
@@ -44,6 +46,7 @@ export function createStartupPresentation(window: BrowserWindow, options: { enab
   window.once("closed", dispose);
   contents.on("did-start-navigation", navigation);
   return {
+    dispose,
     claim: () => {
       if (!options.enabled || disposed || revealed || expired || claimed) return null;
       claimed = true;

@@ -266,3 +266,108 @@ test("sessions are kept for going back to: answers read in the background up to 
   for (const id of [...ids()]) forgetSession(id);
   assert.deepEqual(keptSessions(), []);
 });
+
+/** A service whose answers stay open until the test ends them. */
+function heldService() {
+  const turns: Array<{ messages: UIMessage[]; push: (chunk: UIMessageChunk) => void; end: () => void; aborted: () => boolean }> = [];
+  const transport: ChatTransport<UIMessage> = {
+    async sendMessages({ messages, abortSignal }) {
+      let push!: (chunk: UIMessageChunk) => void, end!: () => void, aborted = false;
+      const stream = new ReadableStream<UIMessageChunk>({ start(controller) {
+        push = chunk => controller.enqueue(chunk);
+        end = () => controller.close();
+        abortSignal?.addEventListener("abort", () => { aborted = true; controller.error(new DOMException("Aborted", "AbortError")); }, { once: true });
+      } });
+      turns.push({ messages, push: chunk => push(chunk), end: () => end(), aborted: () => aborted });
+      return stream;
+    },
+    async reconnectToStream() { return null; },
+  };
+  return { transport, turns };
+}
+
+test("a stop names the turn it was pressed for, and a late one leaves the next turn reading", async () => {
+  const held = heldService();
+  const session = new ConversationSession("bound-stop", held.transport, { history: "ready" });
+  const question = userMessage("First");
+  const first = session.send(question, {});
+  await settle();
+  // The request has a turn identity before any part of the answer arrives.
+  const submitted = session.turnBinding();
+  assert.match(submitted.turnId ?? "", /^[a-f0-9-]{36}$/);
+  assert.equal(submitted.messageId, question.id);
+  held.turns[0].push({ type: "start", messageId: "answer-1", messageMetadata: { runId: "run-1" } });
+  await settle();
+  const pressed = session.turnBinding();
+  assert.deepEqual(pressed, submitted);
+  held.turns[0].push({ type: "finish" });
+  held.turns[0].end();
+  await first;
+
+  // Sent again before the page's own stop for the first turn came round.
+  const again = { ...userMessage("Second"), id: question.id };
+  const second = session.send(again, {});
+  await settle();
+  assert.notEqual(session.turnBinding().turnId, pressed.turnId);
+  assert.equal(session.stopReading(pressed), false, "the stop meant for the first turn");
+  assert.equal(held.turns[1].aborted(), false);
+  assert.equal(session.stopReading(session.turnBinding()), true);
+  await second;
+  assert.equal(held.turns[1].aborted(), true);
+});
+
+test("new turns from elsewhere fill an empty conversation, update a message shown here, and never overwrite what happened meanwhile", async () => {
+  let entries: unknown[] = [];
+  let release: (() => void) | null = null;
+  const session = new ConversationSession("from-elsewhere", service(answer("Here")).transport, {
+    readHistory: async () => { if (release === null) return { data: entries }; await new Promise<void>(resolve => { release = resolve; }); return { data: entries }; },
+  });
+  await session.loadHistory();
+  assert.deepEqual(texts(session), []);
+  // The conversation's first turn was written by a task or another window.
+  entries = [stored("u1", "user", "Asked elsewhere"), stored("a1", "assistant", "Waiting for approval")];
+  await session.addNewTurns();
+  assert.deepEqual(texts(session), ["Asked elsewhere", "Waiting for approval"]);
+  const question = session.chat.messages[0];
+
+  // The answer, same id, was carried on in another window.
+  entries = [stored("u1", "user", "Asked elsewhere"), stored("a1", "assistant", "Approved and finished")];
+  await session.addNewTurns();
+  assert.deepEqual(texts(session), ["Asked elsewhere", "Approved and finished"]);
+  assert.equal(session.chat.messages[0], question, "an unchanged message stays the same object");
+
+  // A read still out when something happens here lands on nothing.
+  release = () => {};
+  const late = session.addNewTurns();
+  await settle();
+  session.chat.messages = [...session.chat.messages, userMessage("Sent here meanwhile")];
+  entries = [stored("u1", "user", "Asked elsewhere"), stored("a1", "assistant", "Stale copy")];
+  (release as () => void)();
+  await late;
+  assert.deepEqual(texts(session), ["Asked elsewhere", "Approved and finished", "Sent here meanwhile"]);
+});
+
+test("a history read that comes back while an answer is being read leaves the answer alone", async () => {
+  const held = heldService();
+  let reply!: (value: { data: unknown[] }) => void;
+  let reads = 0;
+  const session = new ConversationSession("late-read", held.transport, {
+    readHistory: () => (++reads === 1 ? Promise.resolve({ data: [stored("u0", "user", "Earlier")] }) : new Promise(resolve => { reply = resolve; })),
+  });
+  await session.loadHistory();
+  const sending = session.send(userMessage("Now"), {});
+  await settle();
+  held.turns[0].push({ type: "start", messageId: "answer-now" });
+  held.turns[0].push({ type: "text-start", id: "t" });
+  held.turns[0].push({ type: "text-delta", id: "t", delta: "Half an answer" });
+  await settle();
+  const reload = session.loadHistory();
+  reply({ data: [stored("u0", "user", "Earlier")] });
+  await reload;
+  assert.deepEqual(texts(session), ["Earlier", "Now", "Half an answer"], "the saved history, older than the answer, did not replace it");
+  held.turns[0].push({ type: "text-end", id: "t" });
+  held.turns[0].push({ type: "finish" });
+  held.turns[0].end();
+  await sending;
+  assert.deepEqual(texts(session), ["Earlier", "Now", "Half an answer"]);
+});

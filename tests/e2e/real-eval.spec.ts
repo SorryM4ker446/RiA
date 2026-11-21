@@ -194,6 +194,13 @@ test("background commands: a long command runs in the background and its result 
   }
 });
 
+/** Every call the conversation saved, briefly: its tool, input and the start of its result. */
+async function savedCalls(page: Page, real: RealModel, chatId: string) {
+  const rows = await browserData(page, `${real.origin}/api/conversations/${chatId}/messages`) as { role: string; content: string }[];
+  return rows.filter(row => row.role === "assistant").flatMap(row => decodePersistedAssistantToolMessage(row.content)?.tools ?? [])
+    .map(tool => ({ tool: tool.toolName, state: tool.state, input: JSON.stringify(tool.input ?? null).slice(0, 300), result: JSON.stringify(tool.output ?? tool.errorText ?? null).slice(0, 500) }));
+}
+
 /** The terminal calls of the conversation as saved: their state (approval-requested, output-available …) and input. */
 async function savedCommands(page: Page, real: RealModel, chatId: string) {
   const rows = await browserData(page, `${real.origin}/api/conversations/${chatId}/messages`) as { role: string; content: string }[];
@@ -430,12 +437,15 @@ test("sub-agents: independent pieces of long work are handed off; a quick questi
       } finally { cleanup(); }
     });
     await measured(page, real, async () => {
-      const { chatId, cleanup } = await workspace(page, real, `子代理-快问 ${run}`);
+      const { chatId, folder, cleanup } = await workspace(page, real, `子代理-快问 ${run}`);
       try {
         await ask(page, real, chatId, "notes.txt 里说哪个版本什么时候发布？");
         const { answer, tools } = await turn(page, real, chatId);
         const checks = { subagents: tools.filter(name => name === "runSubagent").length, answered: /1\.2/.test(answer) };
-        return { scenario: "subagent-not-for-quick", run, pass: checks.subagents === 0 && checks.answered, checks, tools, answer };
+        const pass = checks.subagents === 0 && checks.answered;
+        // A failed run says what its calls were given and got back, so the cause can be read afterwards.
+        if (!pass) console.log(`[eval] subagent-not-for-quick #${run} calls in ${folder}: ${JSON.stringify(await savedCalls(page, real, chatId))}`);
+        return { scenario: "subagent-not-for-quick", run, pass, checks, tools, answer };
       } finally { cleanup(); }
     });
     await measured(page, real, async () => {
@@ -656,3 +666,79 @@ for (const canSeeImage of [false, true]) {
     }
   });
 }
+
+/** A conversation as the page makes one before its first message: no title of its own yet. */
+async function untitledChat(page: Page, real: RealModel) {
+  const response = await browserApi(page, `${real.origin}/api/conversations`, "POST", {});
+  expect(response.status).toBe(201);
+  return response.body.data.id as string;
+}
+/** The title a conversation is given from its first message before any is written: the message, shortened as the service shortens titles. */
+const seedTitle = (text: string) => { const normalized = text.replace(/\s+/g, " ").trim(); return normalized.length <= 36 ? normalized : `${normalized.slice(0, 36)}...`; };
+/** The conversation's title once naming after the last answer has had its chance. */
+async function settledTitle(page: Page, real: RealModel, chatId: string, before: string) {
+  const read = async () => (await browserData(page, `${real.origin}/api/conversations/${chatId}`) as { title: string }).title;
+  // Naming runs after the answer and takes a moment; a title that never comes stays as it was.
+  for (let wait = 0; wait < 40; wait++) { const title = await read(); if (title !== before && title !== seedTitle(before)) return title; await page.waitForTimeout(500); }
+  return read();
+}
+
+test("titles: a greeting is not a title; the first request names the conversation, in its language @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const chinese = await untitledChat(page, real);
+      await ask(page, real, chinese, "你好");
+      const afterGreeting = await settledTitle(page, real, chinese, "你好");
+      await ask(page, real, chinese, "帮我把这份周报改得更简洁一点：本周完成了登录页改版、修复了三个支付相关的 bug，下周计划接入新的埋点 SDK。");
+      const named = await settledTitle(page, real, chinese, afterGreeting);
+      const english = await untitledChat(page, real);
+      await ask(page, real, english, "Draft a polite email declining the vendor's renewal offer for next year");
+      const englishTitle = await settledTitle(page, real, english, "Draft a polite email declining the vendor's renewal offer for next year");
+      const checks = {
+        greetingKept: afterGreeting === "你好", named: named !== afterGreeting && /周报|简/.test(named), short: Array.from(named).length <= 36 && Array.from(englishTitle).length <= 36,
+        english: /^[\x20-\x7e]+$/.test(englishTitle) && /decline|renewal|vendor|email/i.test(englishTitle), titles: `${named} | ${englishTitle}`,
+      };
+      return { scenario: "conversation-title", run, pass: checks.greetingKept && checks.named && checks.short && checks.english, checks, tools: [], answer: checks.titles };
+    });
+  }
+});
+
+test("long command output: a failure in the middle is found through the log, not missed @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const { chatId, folder, cleanup } = await workspace(page, real, `长输出 ${run}`);
+      try {
+        // A test run of 3000 lines whose one failure is in the middle.
+        writeFileSync(join(folder, "run-tests.ps1"), [
+          "1..3000 | ForEach-Object {",
+          "  if ($_ -eq 1503) { '  FAIL refunds > partial refund keeps the shipping fee'; '    AssertionError: expected 1250 to equal 1000 - shipping fee was refunded' }",
+          "  else { \"  ok suite $([math]::Floor($_ / 50)) > case $_ passes\" }",
+          "}",
+          "'Tests: 2999 passed, 1 failed'",
+        ].join("\n"));
+        await ask(page, real, chatId, "运行工作区里的 run-tests.ps1（用 powershell -File），告诉我哪个测试失败了、为什么。不要修改任何文件。");
+        const { answer, tools } = await turn(page, real, chatId);
+        const checks = { ran: tools.includes("runTerminalCommand"), readLog: tools.includes("readTerminalLog"), found: /partial refund|部分退款/i.test(answer) && /shipping|运费/i.test(answer) };
+        return { scenario: "long-output-failure", run, pass: checks.ran && checks.found, checks, tools, answer };
+      } finally { cleanup(); }
+    });
+  }
+});
+
+test("long file: a function is found by searching first, not by paging and giving up @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    await measured(page, real, async () => {
+      const { chatId, folder, cleanup } = await workspace(page, real, `长文件 ${run}`);
+      try {
+        const lines = Array.from({ length: 1800 }, (_, index) => `  const helper${index + 1} = computeValue(${index + 1}, options.factor * ${(index + 1) % 7}); // routine bookkeeping for orders`);
+        lines.splice(1329, 16, "export function calculateDiscount(order, customer) {", "  let discount = 0;", ...Array.from({ length: 8 }, (_, index) => `  const step${index} = order.items.length * ${index};`), "  if (customer.tier === \"vip\") {", "    discount += order.subtotal * 0.1;", "    discount += order.subtotal * 0.1; // applied again", "  }", "  return Math.min(discount, order.subtotal);", "}");
+        writeFileSync(join(folder, "orders.js"), lines.join("\n"));
+        await ask(page, real, chatId, "orders.js 里的 calculateDiscount 给 VIP 客户的折扣太大了。找出有问题的那一行（给出行号）并说明怎么改。不要修改文件。");
+        const { answer, steps, tools } = await turn(page, real, chatId);
+        const reads = steps.filter(step => step.toolName === "readProjectFile").length;
+        const checks = { line: /134[0-3]/.test(answer), toolCalls: steps.length, reads };
+        return { scenario: "long-file-function", run, pass: checks.line && steps.length <= 8, checks, tools, answer };
+      } finally { cleanup(); }
+    });
+  }
+});

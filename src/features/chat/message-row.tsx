@@ -19,7 +19,9 @@ import { toolLabel } from "./use-tools";
 import { MessageChoices } from "./composer-choices";
 import { readMessageInvocation } from "@/lib/chat/invocation-schema";
 import { isDocumentAttachment } from "@/lib/media/limits";
-import { generatedPictures } from "./generated-pictures";
+import { answerPieces, generatedPictures } from "./generated-pictures";
+import { ChatPicture } from "./answer-picture";
+import { ImageViewer, type ViewedImage } from "@/components/media/image-viewer";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,7 +30,6 @@ import { cn } from "@/lib/utils/cn";
 import { AlertCircle, Check, Copy, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import Image from "next/image";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
 import { removalKey } from "@/lib/ui/removal";
@@ -200,6 +201,15 @@ export const MessageRow = memo(function MessageRow({
   const isRegenerable = message.role === "assistant" && isLast;
   // An answer still being written has no time to state yet.
   const savedAt = isLive || isEditing ? null : readMessageTime(message.metadata);
+  // An answer that made pictures shows them where they were made, between the text written before and after.
+  const pieces = isUser ? null : answerPieces(message);
+  const [viewing, setViewing] = useState<{ image: ViewedImage; returnTo: () => HTMLElement | null } | null>(null);
+  const openPicture = (image: ViewedImage, returnTo: () => HTMLElement | null) => setViewing({ image, returnTo });
+  const reuseButton = (imageUrl: string, key: string, filenameBase: string) => (
+    <Button disabled={Boolean(attachingImageKey)} onClick={() => void actions.current?.onReuseImageForEditing({ imageUrl, key, filenameBase })} size="sm" type="button" variant="secondary">
+      {attachingImageKey === key ? t("chat.messages.reusing") : reuseImageActionLabel}
+    </Button>
+  );
 
   // RiA's own notice that background sub-agents ended: a line between the turns, not the user's message.
   const ownNotice = isUser ? readMessageNotice(message.metadata) : null;
@@ -317,14 +327,26 @@ export const MessageRow = memo(function MessageRow({
           ? <ReplyPending reasoning={alwaysReasons} notice={notice} />
           : null}
         {/* A sub-agent has a card of its own, which says what it is doing; any other tool says so in a line. */}
-        {running && running.tool !== "runSubagent" && runningName && !isReasoning && notice?.state !== "reviewing" ? <ToolRunning key={running.callId} name={runningName} /> : null}
+        {running && running.tool !== "runSubagent" && !(running.tool === "generateImage" && pieces) && runningName && !isReasoning && notice?.state !== "reviewing" ? <ToolRunning key={running.callId} name={runningName} /> : null}
         {!isUser ? toolParts.filter(part => part.type === "tool-runSubagent").map(part => <SubagentCard key={`subagent-${part.toolCallId}`} part={part} runIds={readRunIds(message.metadata)} toolName={toolName} />) : null}
         {isLive && !text && waitingFor ? <p className="reply-waiting" role="status">{t(waitingFor.type === "tool-askUser" ? "chat.messages.waitingForAnswer" : "chat.messages.waitingForApproval")}</p> : null}
         {isUser && !isEditing && invocation ? <MessageChoices invocation={invocation} /> : null}
         {/* Leaves with a fold, not a jump, once the final answer starts. */}
         <Reveal>{plan ? <TaskPlan messageId={message.id} items={plan} /> : null}</Reveal>
         {!isUser ? <QuestionRecords parts={toolParts} /> : null}
-        {!isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
+        {!isEditing && pieces ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}>{pieces.map((piece, index) => {
+          if (piece.kind === "text") {
+            const after = pieces.slice(0, index).reverse().find(item => item.kind === "picture");
+            return <MarkdownMessage key={`text-after-${after?.kind === "picture" ? after.callId : "start"}`} text={piece.text} streaming={isLastAssistantStreaming && index === pieces.length - 1} />;
+          }
+          // A call that failed or was refused made nothing to show; the answer says so.
+          if (!piece.picture && piece.state !== "input-streaming" && piece.state !== "input-available") return null;
+          const picture = piece.picture;
+          return <ChatPicture key={`picture-${piece.callId}`} url={picture?.url ?? null} alt={t("chat.messages.generatedImage")} testId="generated-picture" open={openPicture}>
+            {picture ? reuseButton(picture.url, `${message.id}-${picture.callId}`, `generated-${picture.mediaId}`) : null}
+          </ChatPicture>;
+        })}</CollapsibleAnswer>
+          : !isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
         {skippedTool ? <p className="mt-2 text-xs text-muted-foreground">{tf("chat.slash.toolNotCalled", { name: skippedTool })}</p> : null}
         {memoryNote && !isUser && !pendingHere ? <p className="answer-memory-note mt-2 text-xs text-muted-foreground" data-outcome={memoryNote.outcome}>
           {memoryNote.outcome === "updated" ? tf("chat.memoryNote.updated", { added: memoryNote.added, updated: memoryNote.updated, removed: memoryNote.removed })
@@ -334,54 +356,15 @@ export const MessageRow = memo(function MessageRow({
         </p> : null}
         {!isUser && !isLastAssistantStreaming && canShowSources ? <AnswerSources message={message} onShowAll={() => actions.current?.onShowSources?.(message.id)} /> : null}
         {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
-        {!isUser ? generatedPictures(toolParts).map(picture => (
-          <div className="mt-3 space-y-2" key={`picture-${picture.callId}`} data-testid="generated-picture">
-            <Image
-              alt={t("chat.messages.generatedImage")}
-              className="max-h-[420px] w-full rounded-lg object-contain"
-              src={picture.url}
-              title={picture.prompt}
-              unoptimized
-              width={1024}
-              height={1024}
-            />
-            <Button
-              disabled={Boolean(attachingImageKey)}
-              onClick={() => void actions.current?.onReuseImageForEditing({ imageUrl: picture.url, key: `${message.id}-${picture.callId}`, filenameBase: `generated-${picture.mediaId}` })}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              {attachingImageKey === `${message.id}-${picture.callId}` ? t("chat.messages.reusing") : reuseImageActionLabel}
-            </Button>
-          </div>
+        {!isUser && !pieces ? generatedPictures(toolParts).map(picture => (
+          <ChatPicture key={`picture-${picture.callId}`} url={picture.url} alt={t("chat.messages.generatedImage")} testId="generated-picture" open={openPicture}>
+            {reuseButton(picture.url, `${message.id}-${picture.callId}`, `generated-${picture.mediaId}`)}
+          </ChatPicture>
         )) : null}
         {imageUrl ? (
-          <div className="mt-3 space-y-2">
-            <Image
-              alt={t("chat.messages.generatedImage")}
-              className="max-h-[420px] w-full rounded-lg object-contain"
-              src={imageUrl}
-              unoptimized
-              width={1024}
-              height={1024}
-            />
-            <Button
-              disabled={Boolean(attachingImageKey)}
-              onClick={() =>
-                void actions.current?.onReuseImageForEditing({
-                  imageUrl,
-                  key: `${message.id}-generated`,
-                  filenameBase: `generated-${message.id}`,
-                })
-              }
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              {attachingImageKey === `${message.id}-generated` ? t("chat.messages.reusing") : reuseImageActionLabel}
-            </Button>
-          </div>
+          <ChatPicture url={imageUrl} alt={t("chat.messages.generatedImage")} testId="generated-image" open={openPicture}>
+            {reuseButton(imageUrl, `${message.id}-generated`, `generated-${message.id}`)}
+          </ChatPicture>
         ) : null}
         {videoUrl ? (
           <video
@@ -397,35 +380,9 @@ export const MessageRow = memo(function MessageRow({
           }
           if (filePart.mediaType.startsWith("image/")) {
             return (
-              <div className="mt-3 space-y-2" key={`${message.id}-file-image-${fileIndex}`}>
-                <Image
-                  alt={filePart.filename ?? `Uploaded image ${fileIndex + 1}`}
-                  className="max-h-[420px] w-full rounded-lg object-contain"
-                  height={1024}
-                  src={filePart.url}
-                  unoptimized
-                  width={1024}
-                />
-                <Button
-                  disabled={Boolean(attachingImageKey)}
-                  onClick={() =>
-                    void actions.current?.onReuseImageForEditing({
-                      imageUrl: filePart.url,
-                      key: `${message.id}-file-image-${fileIndex}`,
-                      filenameBase:
-                        filePart.filename?.replace(/\.[^.]+$/, "") ??
-                        `message-${message.id}-image-${fileIndex + 1}`,
-                    })
-                  }
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                >
-                  {attachingImageKey === `${message.id}-file-image-${fileIndex}`
-                    ? t("chat.messages.reusing")
-                    : reuseImageActionLabel}
-                </Button>
-              </div>
+              <ChatPicture key={`${message.id}-file-image-${fileIndex}`} url={filePart.url} alt={filePart.filename ?? `Uploaded image ${fileIndex + 1}`} testId="message-image" open={openPicture}>
+                {reuseButton(filePart.url, `${message.id}-file-image-${fileIndex}`, filePart.filename?.replace(/\.[^.]+$/, "") ?? `message-${message.id}-image-${fileIndex + 1}`)}
+              </ChatPicture>
             );
           }
 
@@ -455,6 +412,7 @@ export const MessageRow = memo(function MessageRow({
         })}
         {!isUser && !pendingHere && !toolParts.some(part => part.state === "approval-requested") ? <EditedFiles parts={toolParts} chatId={chatId} runIds={readRunIds(message.metadata)} /> : null}
       </article>
-    </div>{compactionSummary !== null ? <CompactionMarker summary={compactionSummary} /> : null}</>
+    </div>{compactionSummary !== null ? <CompactionMarker summary={compactionSummary} /> : null}
+    <ImageViewer image={viewing?.image ?? null} returnFocus={viewing?.returnTo} onClose={() => setViewing(null)} /></>
   );
 });

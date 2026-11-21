@@ -172,9 +172,11 @@ export async function restartLocalService(destination = "/chat?settings=services
     }
     runtime.nextServer = launched;
     await setDesktopCookie(runtime.nextServer.origin);
+    if (runtime.isQuitting) return;
     if (runtime.mainWindow && !runtime.mainWindow.isDestroyed()) {
       await runtime.mainWindow.loadURL(`${runtime.nextServer.origin}${destination}`);
     }
+    if (runtime.isQuitting) return;
     runtime.reminderPoller?.start();
     runtime.conversationAlerts?.start();
 
@@ -185,7 +187,7 @@ export async function restartLocalService(destination = "/chat?settings=services
       // A shortcut the operating system refuses is not fatal: the window is
       // still reachable, and the settings screen says the combination is taken.
       const hotkey = await runtime.settingsStore?.getGlobalHotkey().catch(() => "");
-      if (hotkey) registerGlobalHotkey(hotkey);
+      if (hotkey && !runtime.isQuitting) registerGlobalHotkey(hotkey);
     }
   })().finally(() => {
     runtime.restartInProgress = null;

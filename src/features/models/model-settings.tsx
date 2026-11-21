@@ -11,7 +11,7 @@ import { Info, MoreHorizontal, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Status } from "@/components/ui/status";
 import { useToast } from "@/components/ui/toast";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -28,7 +28,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useSettingsDirty } from "@/features/settings/settings-context";
 import { announceModelPreferencesChanged } from "@/features/models/preference-events";
 import { animateRemoval, removalKey } from "@/lib/ui/removal";
-type CatalogState = { models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; failure: string | null; skipped: number };
+type CatalogState = { models: CatalogModel[]; fetchedAt: string | null; stale: boolean; source: "live" | "cache" | "empty"; error: string | null; failure: string | null; skipped: number; libraryChanged?: boolean };
 type ProviderSummary = { providerId: string; displayName: string; configured: boolean };
 const modeNames = (): Record<LibraryMode, string> => ({ chat: t("models.mode.chat"), image: t("models.mode.image"), video: t("models.mode.video"), embedding: t("models.mode.embedding") });
 // Radix reserves the empty string for "no selection" and throws if an item
@@ -94,6 +94,8 @@ export function ModelSettings() {
   const [settings, setSettings] = useState<ModelPreferences | null>(null);
   // The preferences as last loaded or saved, to tell an edit in progress from what is stored.
   const [savedPreferences, setSavedPreferences] = useState<ModelPreferences | null>(null);
+  // Read after a request comes back, when the value this render closed over may be older.
+  const savedRef = useRef<ModelPreferences | null>(null);
   const [catalogMode, setCatalogMode] = useState<LibraryMode>("chat");
   // The catalog is browsed one provider at a time. Two entries with the same
   // model id are different models, so mixing them into one list would hide
@@ -104,9 +106,16 @@ export function ModelSettings() {
   const [availability, setAvailability] = useState<LibraryAvailability>({});
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  // Models being added or removed. Only their own button or row waits: the rest of the page stays as
+  // it is, so a library change does not dim and undim every control on it.
+  const [pendingModels, setPendingModels] = useState<ReadonlySet<string>>(() => new Set());
+  const pendingKeys = useRef(new Set<string>());
+  const libraryWrites = useRef<Promise<void>>(Promise.resolve());
   const load = useCallback(async () => {
     const preferences = await settingsRequest<{ data: ModelPreferences; availability: LibraryAvailability; providers: ProviderSummary[]; recentFailures: LibraryModelFailure[] }>("/api/models");
-    setSettings(current => current ? { ...current, ...preferences.data } : preferences.data);
+    const base = savedRef.current;
+    setSettings(current => current && base ? applyEdits(base, current, preferences.data) : preferences.data);
+    savedRef.current = preferences.data;
     setSavedPreferences(preferences.data);
     setAvailability(preferences.availability ?? {});
     setProviders(preferences.providers ?? []);
@@ -115,8 +124,15 @@ export function ModelSettings() {
   const loadCatalog = useCallback(async (providerId: string, mode: LibraryMode, force = false) => {
     const query2 = force ? "" : `?providerId=${encodeURIComponent(providerId)}&mode=${mode}`;
     const response = await settingsRequest<{ catalogs: Record<string, Partial<Record<LibraryMode, CatalogState>>> }>(`/api/models/catalog${query2}`, force ? jsonRequest("POST", { providerId, mode }) : undefined);
-    setCatalogs(current => ({ ...current, [providerId]: { ...current[providerId], ...(response.catalogs[providerId] ?? {}) } }));
-  }, []);
+    const catalog = response.catalogs[providerId] ?? {};
+    setCatalogs(current => ({ ...current, [providerId]: { ...current[providerId], ...catalog } }));
+    if (catalog[mode]?.libraryChanged) {
+      const refresh = libraryWrites.current.then(load);
+      libraryWrites.current = refresh.catch(() => {});
+      await refresh;
+      announceModelPreferencesChanged();
+    }
+  }, [load]);
   const activeProvider = catalogProvider ?? providers[0]?.providerId ?? null;
   const activeCatalog = activeProvider ? catalogs[activeProvider]?.[catalogMode] : undefined;
   useEffect(() => { void load().catch(cause => setError(cause instanceof Error ? cause.message : t("models.error.load"))); }, [load]);
@@ -137,13 +153,40 @@ export function ModelSettings() {
       library: [...current.library.filter(model => modelRefKey(model) !== key), result.data],
       legacyCandidates: current.legacyCandidates.filter(candidate => modelRefKey(candidate.ref) !== key),
     } : current;
-    setSettings(merge);
-    setSavedPreferences(merge);
+    const base = savedRef.current;
+    const saved = merge(base);
+    setSettings(current => current && base && saved ? applyEdits(base, current, saved) : merge(current));
+    savedRef.current = saved;
+    setSavedPreferences(saved);
     announceModelPreferencesChanged();
     toast(result.alreadyAdded ? tf("models.notice.addedBefore", { modelId: item.modelId })
       : result.defaulted.length ? tf("models.notice.addedAsDefault", { modelId: item.modelId }) : tf("models.notice.added", { modelId: item.modelId }));
   }
   async function run(operation: () => Promise<void>) { setBusy(true); setError(""); try { await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : t("models.error.act")); } finally { setBusy(false); } }
+  /** One model's library change: its own control waits, and a failure leaves the list as it was shown. */
+  async function changeLibrary(key: string, operation: () => Promise<void>) {
+    if (pendingKeys.current.has(key)) return;
+    pendingKeys.current.add(key);
+    setPendingModels(new Set(pendingKeys.current));
+    setError("");
+    // Removals return the entire library. Apply each response in write order,
+    // including the removal animation, so an older snapshot cannot undo a later add.
+    const write = libraryWrites.current.then(operation);
+    libraryWrites.current = write.catch(() => {});
+    try { await write; } catch (cause) { setError(cause instanceof Error ? cause.message : t("models.error.act")); }
+    finally {
+      pendingKeys.current.delete(key);
+      setPendingModels(new Set(pendingKeys.current));
+    }
+  }
+  /** A removal's result taken in without dropping edits in progress or another change that finished meanwhile. */
+  function takeRemoval(latest: ModelPreferences) {
+    const base = savedRef.current;
+    setSettings(current => current && base ? applyEdits(base, current, latest) : latest);
+    savedRef.current = latest;
+    setSavedPreferences(latest);
+    announceModelPreferencesChanged();
+  }
   function changeMode(mode: GenerationMode, field: "model" | "fallback", value: ModelRef | null) { if (settings) setSettings({ ...settings, [mode]: { ...settings[mode], [field]: value } }); }
   function changeRate(id: string, key: "inputPerMillion" | "outputPerMillion" | "perRequest" | "cacheReadPerMillion" | "cacheWritePerMillion", value: string) { if (settings) setSettings({ ...settings, rates: { ...settings.rates, [id]: { ...(settings.rates[id] ?? { inputPerMillion: null, outputPerMillion: null, perRequest: null }), [key]: value === "" ? null : Number(value) } } }); }
   // Rates are keyed by provider and model, so the two entries for the same
@@ -157,7 +200,7 @@ export function ModelSettings() {
   }, [settings]);
   const filteredModels = useMemo(() => (activeCatalog?.models ?? []).filter(item => `${item.modelId} ${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())), [activeCatalog, query]);
   const added = useMemo(() => new Set(settings?.library.map(item => modelRefKey(item)) ?? []), [settings]);
-  function updateSettings(next: ModelPreferences) { setSettings(next); setSavedPreferences(next); announceModelPreferencesChanged(); }
+  function updateSettings(next: ModelPreferences) { savedRef.current = next; setSettings(next); setSavedPreferences(next); announceModelPreferencesChanged(); }
   useSettingsDirty(Boolean(settings && savedPreferences && preferenceKey(settings) !== preferenceKey(savedPreferences)));
   const providerName = (providerId: string) => providers.find(provider => provider.providerId === providerId)?.displayName ?? providerId;
   // Written out rather than interpolated: the locale table is typed by key, and
@@ -177,14 +220,14 @@ export function ModelSettings() {
     <Reveal className="-mt-7">{error ? <p role="alert" className="mt-7 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>{warnings.map(warning => <p role="alert" key={warning} className="break-words rounded-lg bg-warning/5 p-3 text-sm text-warning shadow-hairline">{warning}</p>)}
     {settings && <>
       <section id="model-library" className="models-section page-section flex flex-col gap-4" aria-label={t("models.libraryLabel")}><div className="flex items-baseline gap-2"><h2 className="text-base font-semibold tracking-title">{t("models.libraryTitle")}</h2><span className="text-xs text-muted-foreground">{settings.library.length}</span></div>
-        {settings.library.length ? <ul className="item-list" style={{ "--cols": "minmax(0, 1fr) 5.5rem 3.5rem", "--cols-narrow": "minmax(0, 1fr) 3.5rem" } as React.CSSProperties}>{settings.library.map(item => <li key={`${item.providerId}:${item.modelId}`} {...removalKey(`model:${modelRefKey(item)}`)} className="item-row data-row catalog-library-row min-w-0"><div className="flex min-w-0 flex-col gap-0.5"><h3 className="break-all text-sm font-medium tracking-label">{item.name}</h3><p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground"><span className="break-all font-mono">{item.modelId}</span><span>· {providerName(item.providerId)}</span></p><p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">{[...item.modes.map(mode => modeNames()[mode]), ...(item.supportsImageInput ? [t("models.badge.imageInput")] : []), ...(item.modes.includes("image") ? [tf("models.badge.imageEndpoint", { status: item.endpointImageInput === null ? t("models.badge.endpointUnverified") : item.endpointImageInput ? t("models.badge.endpointCompatible") : t("models.badge.endpointIncompatible") })] : []), ...(item.supportsTools ? [t("models.badge.tools")] : [])].join(" · ")}{item.providerSearch && <Status tone="warning">{t("models.badge.providerSearch")}</Status>}</p></div>{/* A model that can be used says nothing; only one that cannot says why. */}
+        {settings.library.length ? <ul className="item-list models-library-list" style={{ "--cols": "minmax(0, 1fr) 5.5rem 3.5rem", "--cols-narrow": "minmax(0, 1fr) 3.5rem" } as React.CSSProperties}>{settings.library.map(item => <li key={`${item.providerId}:${item.modelId}`} {...removalKey(`model:${modelRefKey(item)}`)} className="item-row data-row catalog-library-row min-w-0"><div className="flex min-w-0 flex-col gap-0.5"><h3 className="break-all text-sm font-medium tracking-label">{item.name}</h3><p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground"><span className="break-all font-mono">{item.modelId}</span><span>· {providerName(item.providerId)}</span></p><p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">{[...item.modes.map(mode => modeNames()[mode]), ...(item.supportsImageInput ? [t("models.badge.imageInput")] : []), ...(item.modes.includes("image") ? [tf("models.badge.imageEndpoint", { status: item.endpointImageInput === null ? t("models.badge.endpointUnverified") : item.endpointImageInput ? t("models.badge.endpointCompatible") : t("models.badge.endpointIncompatible") })] : []), ...(item.supportsTools ? [t("models.badge.tools")] : [])].join(" · ")}{item.providerSearch && <Status tone="warning">{t("models.badge.providerSearch")}</Status>}</p></div>{/* A model that can be used says nothing; only one that cannot says why. */}
           {(availability[modelRefKey(item)]?.state ?? "ready") === "ready" ? <span className="col-optional col-end" /> : <Status className="col-optional col-end" tone="warning">{availabilityLabel(availability[modelRefKey(item)]?.state)}</Status>}
           <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" className="item-row-action col-end" disabled={busy} aria-label={tf("ui.assistants.moreActionsFor", { v0: item.name })}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" className="item-row-action col-end" disabled={busy || pendingModels.has(modelRefKey(item))} aria-busy={pendingModels.has(modelRefKey(item)) || undefined} aria-label={tf("ui.assistants.moreActionsFor", { v0: item.name })}><MoreHorizontal aria-hidden="true" /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem variant="destructive" onSelect={() => void run(async () => { const result = await settingsRequest<{ data: ModelPreferences }>("/api/models/library", jsonRequest("POST", { action: "remove", model: { providerId: item.providerId, modelId: item.modelId } })); await animateRemoval(`model:${modelRefKey(item)}`, () => updateSettings(result.data)); toast(tf("models.removedFromLibrary", { modelId: item.modelId })); })}><Trash2 aria-hidden="true" />{t("models.remove")}</DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onSelect={() => void changeLibrary(modelRefKey(item), async () => { const result = await settingsRequest<{ data: ModelPreferences }>("/api/models/library", jsonRequest("POST", { action: "remove", model: { providerId: item.providerId, modelId: item.modelId } })); await animateRemoval(`model:${modelRefKey(item)}`, () => takeRemoval(result.data)); toast(tf("models.removedFromLibrary", { modelId: item.modelId })); })}><Trash2 aria-hidden="true" />{t("models.remove")}</DropdownMenuItem>
             </DropdownMenuContent>
-          </DropdownMenu></li>)}</ul> : <p className="empty-state !p-4 !text-left">{t("models.libraryEmpty")}</p>}
+          </DropdownMenu></li>)}</ul> : <p className="empty-state models-library-empty">{t("models.libraryEmpty")}</p>}
       </section>
       <section id="model-catalog" className="models-section page-section flex flex-col gap-5" aria-label={t("models.catalogLabel")}><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-base font-semibold tracking-title">{t("models.catalogTitle")}</h2><RefreshButton iconOnly disabled={busy} onClick={() => void run(async () => { if (activeProvider) await loadCatalog(activeProvider, catalogMode, true); toast(t("models.notice.catalogRefreshed")); })} label={t("models.refreshCatalog")} /></div>
         <label className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">{t("ui.models.modelServices")}<SelectField aria-label={t("models.providerTabsLabel")} value={activeProvider ?? ""} onValueChange={value => { setQuery(""); setCatalogProvider(value); }}>
@@ -198,7 +241,9 @@ export function ModelSettings() {
             an empty list that looks like the provider offers nothing. */}
         {activeProvider && !providers.find(provider => provider.providerId === activeProvider)?.configured && <p className="text-sm text-warning">{tf("models.providerKeyMissing", { provider: providerName(activeProvider) })}</p>}
         <ToolbarSearch aria-label={t("models.searchLabel")} placeholder={t("models.searchPlaceholder")} value={query} onChange={event => setQuery(event.target.value)} />
-        {activeCatalog?.error && <p role="status" className="text-sm text-warning">{activeCatalog.stale ? t("models.notice.catalogStale") : t("models.notice.catalogUnavailable")} {activeCatalog.error}</p>}
+        {/* Without a key the line above already says why the catalog cannot be read; saying it again only grew the
+            section once the read came back, moving what is below. Cached rows still say they are cached. */}
+        {activeCatalog?.error && (activeCatalog.stale || providers.find(provider => provider.providerId === activeProvider)?.configured) && <p role="status" className="text-sm text-warning">{activeCatalog.stale ? t("models.notice.catalogStale") : t("models.notice.catalogUnavailable")} {activeCatalog.error}</p>}
         {/* A partial parse is a note, not a failure: the rows that did validate
             are listed below. */}
         {/* A plain note, not a live region: `role="status"` here would collide
@@ -207,7 +252,7 @@ export function ModelSettings() {
         {/* Rows the parser had to skip leave the rest usable; that is said on demand, not as a headline. */}
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">{`${activeCatalog?.models.length ?? 0} ${t("models.catalog.countUnit")}${activeCatalog?.fetchedAt ? ` ${t("models.divider")} ${t("models.catalog.updatedAt")} ${formatDateTime(activeCatalog.fetchedAt)}` : ""}${activeCatalog?.stale ? ` ${t("models.divider")} ${t("models.catalog.cachedData")}` : ""}`}
           {!activeCatalog?.error && (activeCatalog?.skipped ?? 0) > 0 && <span role="img" className="inline-flex" aria-label={tf("models.notice.catalogSkipped", { count: activeCatalog!.skipped })} title={tf("models.notice.catalogSkipped", { count: activeCatalog!.skipped })}><Info aria-hidden="true" className="size-3.5" /></span>}</p>
-        <CatalogResults key={`${activeProvider}:${catalogMode}:${query}:${activeCatalog?.fetchedAt}`} models={filteredModels} added={added} busy={busy} onAdd={item => void run(() => addFromCatalog(item))} />
+        <CatalogResults key={`${activeProvider}:${catalogMode}`} models={filteredModels} added={added} busy={busy} pending={pendingModels} loading={Boolean(activeProvider) && !activeCatalog} onAdd={item => void changeLibrary(modelRefKey(item), () => addFromCatalog(item))} />
         </> : null}</TabsContent>)}
         </Tabs>
       </section>
@@ -294,7 +339,7 @@ export function ModelSettings() {
         </fieldset>
         <details className="settings-disclosure"><summary className="settings-disclosure-trigger cursor-pointer text-foreground">{t("models.ratesTitle")}</summary><p className="my-3 text-sm text-muted-foreground">{t("models.ratesDescription")}</p>{rateModels.map(id => <fieldset key={id} className="mb-3 grid gap-2 sm:grid-cols-3"><legend className="break-all font-mono text-xs text-muted-foreground">{id}</legend>{([ ["inputPerMillion", t("models.rateInputLabel")], ["cacheReadPerMillion", t("models.rateCacheReadLabel")], ["cacheWritePerMillion", t("models.rateCacheWriteLabel")], ["outputPerMillion", t("models.rateOutputLabel")], ["perRequest", t("models.rateRequestLabel")] ] as const).map(([key, label]) => <label key={key} className="text-xs">{label}<Input aria-label={`${id} ${label}`} type="number" step="any" min={0} value={settings.rates[id]?.[key] ?? ""} disabled={busy} onChange={event => changeRate(id, key, event.target.value)} /></label>)}</fieldset>)}</details>
         {/* Saving belongs to the settings above it, so it sits in their footer rather than floating after the last field. */}
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/55 pt-4"><p role={limitProblems.size ? "status" : undefined} className={limitProblems.size ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>{limitProblems.size ? t("ui.models.fixLimitsBeforeSaving") : t("models.preferencesNote")}</p><Button size="sm" disabled={busy || limitProblems.size > 0} onClick={() => void run(async () => { const { data: latest } = await settingsRequest<{ data: ModelPreferences }>("/api/models"); const saved = await settingsRequest<{ data: ModelPreferences }>("/api/models", jsonRequest("PUT", savedPreferences ? applyEdits(savedPreferences, settings, latest) : settings)); updateSettings(saved.data); toast(t("models.notice.preferencesSaved")); })}>{t("models.savePreferences")}</Button></footer>
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border/55 pt-4"><p role={limitProblems.size ? "status" : undefined} className={limitProblems.size ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>{limitProblems.size ? t("ui.models.fixLimitsBeforeSaving") : t("models.preferencesNote")}</p><Button size="sm" disabled={busy || limitProblems.size > 0} onClick={() => void run(async () => { await libraryWrites.current; const { data: latest } = await settingsRequest<{ data: ModelPreferences }>("/api/models"); const saved = await settingsRequest<{ data: ModelPreferences }>("/api/models", jsonRequest("PUT", savedPreferences ? applyEdits(savedPreferences, settings, latest) : settings)); updateSettings(saved.data); toast(t("models.notice.preferencesSaved")); })}>{t("models.savePreferences")}</Button></footer>
       </section>
     </>}
   </>;

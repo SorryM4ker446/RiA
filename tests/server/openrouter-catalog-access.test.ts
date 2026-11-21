@@ -48,7 +48,7 @@ test("missing OpenRouter keys hide fresh and expired caches without deleting the
   for (const [index, mode] of modes.entries()) {
     await db.modelCatalogSnapshot.create({ data: {
       providerId: "openrouter", mode, fetchedAt: new Date(Date.now() - (index % 2 ? 48 * 60 * 60_000 : 0)),
-      models: [{ providerId: "openrouter", modelId: `example/${mode}`, name: mode, description: "", modes: [mode], supportsImageInput: false, supportsTools: false, contextLength: null, pricing: {} }],
+      models: [{ providerId: "openrouter", modelId: `example/${mode}`, name: mode, description: "", modes: [mode], supportsImageInput: false, supportsTools: false, contextLength: null, pricing: {}, ...(mode === "chat" ? { outputs: ["text"] } : {}) }],
     } });
   }
   const snapshots = await db.modelCatalogSnapshot.findMany({ orderBy: { mode: "asc" } });
@@ -65,5 +65,20 @@ test("missing OpenRouter keys hide fresh and expired caches without deleting the
   assert.equal((await getCatalog("openrouter", "chat")).models[0].modelId, "example/chat");
   assert.equal(fetch.mock.callCount(), 0);
   assert.equal((await getCatalog("openrouter", "chat", true)).models[0].modelId, "example/refreshed");
+  assert.equal(fetch.mock.callCount(), 1);
+});
+
+test("a fresh chat cache from before output metadata is refreshed once", async t => {
+  await db.modelCatalogSnapshot.create({ data: {
+    providerId: "openrouter", mode: "chat", fetchedAt: new Date(),
+    models: [{ providerId: "openrouter", modelId: "example/stale", name: "Stale", description: "", modes: ["chat"], supportsImageInput: false, supportsTools: false, contextLength: null, pricing: {} }],
+  } });
+  process.env.OPENROUTER_API_KEY = "catalog-test-key";
+  const fetch = t.mock.method(globalThis, "fetch", async () => Response.json({ data: [
+    { id: "example/current", name: "Current", architecture: { output_modalities: ["text"] } },
+    { id: "example/stale", name: "Stale", architecture: { output_modalities: ["image", "text"] } },
+  ] }));
+  assert.deepEqual((await getCatalog("openrouter", "chat")).models.map(row => row.modelId), ["example/current"]);
+  assert.equal((await getCatalog("openrouter", "chat")).source, "cache");
   assert.equal(fetch.mock.callCount(), 1);
 });

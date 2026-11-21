@@ -44,6 +44,8 @@ The check rejects changed installer bytes/version, missing or duplicate scenario
 
 For the Windows application ID transition, exercise Upgrade and In-app update from a preceding MSI using `com.squirrel.RiA.RiA` to this release using `com.ria.RiA`. Verify the updated Start menu shortcut, taskbar grouping and RiA notification name/icon; record whether the old taskbar pin needed to be removed and pinned again. Recheck Windows notification preferences rather than assuming old settings or history migrated. These checks require an actual installed upgrade, not an unpacked executable.
 
+As part of Clean installation, pin RiA to the taskbar and exit with the title-bar close button and with Alt+F4. Enable close to tray and confirm RiA keeps running and reopens from the tray. Use the tray's Quit command with the window visible and after closing it to the tray. Verify the taskbar stays visible without flashing, the local service exits, and RiA relaunches.
+
 Automated local evidence: isolated database migrations/WAL safety snapshots; settings encryption in Electron; reminder recording sink; resume state-machine tests; built-service offline local operations; real HTTP proxy forwarding and loopback bypass; unpacked/packaged smoke when explicitly run. These are separate from the manual scenarios above.
 
 ## Setup executable acceptance

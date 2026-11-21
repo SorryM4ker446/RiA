@@ -4,7 +4,7 @@ import { t } from "@/lib/locale";
 import { libraryModes, modelIdSchema, providerIdSchema, type LibraryMode, type ProviderId } from "@/lib/models/preferences-schema";
 import { CatalogFetchError, getModelProvider, listModelProviders, type CatalogFailureReason, type CatalogModel } from "@/lib/models/providers";
 import { catalogPriceInfoSchema } from "@/lib/models/catalog-prices";
-import { syncLibraryReasoning } from "@/lib/models/preferences";
+import { syncLibraryGenerators, syncLibraryReasoning } from "@/lib/models/preferences";
 
 export type { CatalogModel } from "@/lib/models/providers";
 
@@ -25,6 +25,8 @@ export type CatalogState = {
   /** Distinguishes "temporarily unreachable" from "the stored credential was rejected". */
   failure: CatalogFailureReason | null;
   skipped: number;
+  /** A live refresh corrected one or more saved models' generation modes. */
+  libraryChanged?: boolean;
 };
 
 const failureReasons: CatalogFailureReason[] = ["http", "unauthorized", "timeout", "tooLarge", "empty", "notJson", "invalidShape", "emptyCatalog", "network"];
@@ -52,6 +54,7 @@ const storedCatalogModel = z.object({
   contextLength: z.number().int().positive().nullable(),
   maxOutputTokens: z.number().int().positive().nullable().optional(),
   pricing: z.record(z.string(), z.string()),
+  outputs: z.array(z.string()).optional(),
   priceInfo: catalogPriceInfoSchema.optional(),
 });
 
@@ -92,7 +95,7 @@ async function refresh(providerId: ProviderId, mode: LibraryMode): Promise<Catal
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), catalogTimeoutMs);
   try {
-    const { models, invalidRows } = await provider.fetchCatalog(mode, controller.signal);
+    const { models, invalidRows, generators } = await provider.fetchCatalog(mode, controller.signal);
     for (const model of models) {
       if (!model.priceInfo?.error) continue;
       const previous = old?.models.find(row => row.modelId === model.modelId)?.priceInfo;
@@ -101,6 +104,7 @@ async function refresh(providerId: ProviderId, mode: LibraryMode): Promise<Catal
         model.priceInfo = { ...previous, error: true };
       }
     }
+    const updatedLibrary = mode === "chat" && generators?.length ? await syncLibraryGenerators(providerId, generators) : [];
     const fetchedAt = new Date();
     await db.modelCatalogSnapshot.upsert({
       where: { providerId_mode: { providerId, mode } },
@@ -110,7 +114,7 @@ async function refresh(providerId: ProviderId, mode: LibraryMode): Promise<Catal
     failures.delete(key);
     // The catalog was read; a library that could not be updated catches up on the next read.
     if (mode === "chat") await syncLibraryReasoning(providerId, models).catch(error => console.warn("catalog.reasoning.sync.failed", error instanceof Error ? error.name : "UnknownError"));
-    return { providerId, mode, models, fetchedAt: fetchedAt.toISOString(), stale: false, source: "live", error: null, failure: null, skipped: invalidRows };
+    return { providerId, mode, models, fetchedAt: fetchedAt.toISOString(), stale: false, source: "live", error: null, failure: null, skipped: invalidRows, ...(updatedLibrary.length ? { libraryChanged: true } : {}) };
   } catch (error) {
     const reason = error instanceof CatalogFetchError ? error.reason : "network";
     const message = describeFailure(reason, provider.displayName, mode, error instanceof CatalogFetchError ? error.detail : undefined);
@@ -194,7 +198,8 @@ export async function getCatalog(providerId: ProviderId, mode: LibraryMode, forc
   const key = cacheKey(providerId, mode);
   const old = await cachedSnapshot(providerId, mode);
   const needsMediaPrices = providerId === "openrouter" && (mode === "image" || mode === "video") && old?.models.some(model => !model.priceInfo);
-  if (!force && old && !needsMediaPrices && Date.now() - old.fetchedAt.getTime() < cacheDurationMs) {
+  const needsOutputModes = providerId === "openrouter" && mode === "chat" && old?.models.some(model => !model.outputs);
+  if (!force && old && !needsMediaPrices && !needsOutputModes && Date.now() - old.fetchedAt.getTime() < cacheDurationMs) {
     // The snapshot remembers how the last refresh went, and that is still the
     // truth about this provider: reporting a rejected key as a current,
     // error-free catalog hides a credential the user has to fix, for as long as

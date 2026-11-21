@@ -23,6 +23,7 @@ const { encodeMediaMessage } = await import("@/lib/media/message-codec");
 const routes = {
   library: await import("@/app/api/media/library/route"), details: await import("@/app/api/media/[id]/details/route"),
   regenerate: await import("@/app/api/media/[id]/regenerate/route"), media: await import("@/app/api/media/[id]/route"),
+  locate: await import("@/app/api/media/[id]/locate/route"),
   image: await import("@/app/api/image/route"), video: await import("@/app/api/video/route"),
 };
 let cookie;
@@ -242,4 +243,17 @@ test("generation tolerates a removed source chat but cannot resurrect an input d
   assert.equal(failed.status, 404);
   assert.equal(await db.mediaGenerationInput.count({ where: { inputAssetId: input.id } }), 0);
   assert.ok(await db.mediaAsset.count() >= 1);
+});
+
+test("the file of an asset is located for the file manager only after the same checks a read makes", async () => {
+  const asset = await image();
+  const located = await payload(await routes.locate.POST(req(`/api/media/${asset.id}/locate`, "POST"), context(asset.id)));
+  assert.equal(located.data.absolutePath, join(storage.getMediaDirectory(), asset.relativePath.split("/")[0], `${asset.id}.png`));
+  // An unknown id, a foreign one and a file missing from disk are all simply not there.
+  await payload(await routes.locate.POST(req(`/api/media/${randomUUID()}/locate`, "POST"), context(randomUUID())), 404);
+  await payload(await routes.locate.POST(req("/api/media/..%2F..%2Fsecret/locate", "POST"), context("../../secret")), 404);
+  unlinkSync(located.data.absolutePath);
+  await payload(await routes.locate.POST(req(`/api/media/${asset.id}/locate`, "POST"), context(asset.id)), 404);
+  // Without the local credential nothing is said about where files are.
+  await payload(await routes.locate.POST(req(`/api/media/${asset.id}/locate`, "POST", undefined, ""), context(asset.id)), 401);
 });

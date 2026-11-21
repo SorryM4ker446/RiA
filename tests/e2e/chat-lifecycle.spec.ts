@@ -72,7 +72,7 @@ test("conversation create, rename and confirmed deletion preserve the remaining 
   let deletes = 0;
   await page.route("**/api/conversations", async (route) => {
     if (route.request().method() === "POST") {
-      const created = summary("new-chat", route.request().postDataJSON().title);
+      const created = summary("new-chat", route.request().postDataJSON().title ?? "New Chat");
       chats = [created, ...chats];
       await route.fulfill({ status: 201, json: { data: created } });
     } else await route.fulfill({ json: { data: chats } });

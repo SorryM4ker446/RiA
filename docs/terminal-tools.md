@@ -197,7 +197,10 @@ are not imposed on developer commands.
 Each command starts a fresh Windows PowerShell process without a profile or
 interactive input. Shell variables and current-directory changes do not persist
 between calls. Administrator prompts and interactive terminal programs are not
-supported. There is no terminal-specific command character limit. Scripts travel
+supported. The command's output is formatted inside the run (`Out-Default`), so
+objects printed as a table (for example `Get-ChildItem | Select-Object Name,Length`)
+reach stdout before the process exits; the exit code still follows the command
+(`$?` and `$LASTEXITCODE`). There is no terminal-specific command character limit. Scripts travel
 over a UTF-8 pipe rather than command-line arguments or environment variables,
 avoiding Windows length limits. The chat endpoint has no request-body byte limit,
 including approval continuations and later messages carrying terminal history.
@@ -241,12 +244,20 @@ the latest 8 KiB of each of stdout and stderr, so a build or test summary at the
 end is kept. An explicit marker states how many bytes in between were omitted.
 Output and command text are saved with the chat and sent to its model.
 
-When output exceeds the capture, its complete stdout and stderr are also saved as
+The model is sent less: up to 16 KiB of a command's output, the beginning and the end of
+each stream, with a line where the rest was left out saying how many bytes and how to read
+them (`src/lib/terminal/model-output.ts`); the card, the execution record and approvals keep
+the capture. Compared with a real model on a test log whose one failure sat in the middle,
+16 KiB found the failure every time with about a quarter of the input, while 64 KiB hid the
+gap and the model reported no failure. Earlier results are replayed to the model the same way.
+
+When output exceeds what the model is sent (16 KiB), its complete stdout and stderr are also saved as
 a terminal log in the cache folder (`terminal-logs/<command id>`, beside the local database unless a cache folder was chosen; see [Data and cache location](data-location.md)), and the
 result carries a `log` reference with byte counts and `complete`. The
 `readTerminalLog` tool, available wherever `runTerminalCommand` is, reads a log
 by 1-based line range (up to 400 lines and 48 KiB per call, continuing at
-`nextLine`) or lists matching lines for a case-insensitive search. History
+`nextLine`) or lists matching lines for a case-insensitive search (as many as
+`lineCount` asks for, at most 50, with `nextLine` at the next match). History
 records and summaries keep the reference, so later steps and requests can read
 the omitted middle. Logs are bounded to 64 MiB per command and 512 MiB in total;
 beyond either, or on a write failure such as a full disk, a log is marked
@@ -374,6 +385,21 @@ redo writes back; a larger file can be undone but not redone. Undoing an answer 
 ran in several requests (approvals) covers all of them. The next reply is told which
 files you undid or redid, so the model reads them again rather than building on an
 old view. Undo and redo are refused while the conversation is still answering.
+
+Each file is checked again at the moment it is changed, not only when the list is
+read (`src/lib/checkpoints/commit.ts`). The file is first moved aside under a
+temporary name in one step, so what is checked is exactly what is replaced; a file
+that is no longer as the reply (or the undo) left it is put back untouched and
+reported as changed, and its records stay as they were. New content takes the name
+only while nothing else holds it (a hard link, or an exclusive copy where the drive
+has none), so a file created under the same name in the meantime is never written
+over. The moved-aside file is removed only once the change is recorded; a change that
+cannot be recorded is taken back. RiA's own writes to one file take turns
+(`src/lib/local-files/file-writes.ts`): an undo and an `editProjectFile` edit of the
+same file never interleave, and the edit's own hash check refuses an edit planned
+against content an undo replaced. Content restored from git is written to a new
+temporary file, and the restore settles only after git has exited and the file is
+closed; a failed write stops git, and only a file the restore created is removed.
 
 What makes this possible is a checkpoint per changed file, recorded for edits made
 with `editProjectFile` and for changes a command made in a conversation. The content

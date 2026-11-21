@@ -43,18 +43,28 @@ export const chatApi = {
       throw error;
     }
   },
-  createConversation: (title?: string, assistantTemplateId?: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title, assistantTemplateId })),
+  // The page names a conversation only from its first message, which a model-written title may replace.
+  createConversation: (title?: string, assistantTemplateId?: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title, assistantTemplateId, ...(title ? { titleSource: "auto" } : {}) })),
   listAssistants: (signal?: AbortSignal) => requestJson<Data<AssistantTemplate[]>>("/api/assistants", t("ui.chat.api-client.couldNotLoadAssistantTemplates"), { signal }),
   setAssistant: (id: string, assistantTemplateId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.api-client.couldNotApplyAssistantTemplate"), jsonBody("PATCH", { assistantTemplateId })),
   setPinned: (id: string, pinned: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("sidebar.failed"), jsonBody("PATCH", { pinned })),
   setArchived: (id: string, archived: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("sidebar.failed"), jsonBody("PATCH", { archived })),
-  renameConversation: (id: string, title: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title })),
+  // automatic: a title made from the first message, which a model-written title may still replace; otherwise the user named it.
+  renameConversation: (id: string, title: string, options: { automatic?: boolean } = {}) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.renameConversationFailed"), jsonBody("PATCH", { title, ...(options.automatic ? { titleSource: "auto" } : {}) })),
   setWorkspace: (id: string, workspaceGrantId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.workspace.failed"), jsonBody("PATCH", { workspaceGrantId })),
   setEphemeral: (id: string, ephemeral: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatApi.setEphemeralFailed"), jsonBody("PATCH", { ephemeral })),
   // Opened: what arrived in it has been seen.
   markRead: (id: string) => requestJson<Data<ChatSummary>>(conversationPath(id), t("sidebar.failed"), jsonBody("PATCH", { unread: false })),
-  // Stops the turn the service is holding in this conversation; false when none was running.
-  stopTurn: async (id: string) => (await requestJson<Data<{ stopped: boolean }>>(`/api/chat/${encodeURIComponent(id)}/stream`, t("chatState.requestFailed"), { method: "DELETE" })).data.stopped,
+  // Stops the turn the service is holding in this conversation; false when none was running. With a
+  // binding, only the turn it names: a stop that arrives after that turn ended leaves the next one alone.
+  stopTurn: async (id: string, binding: { turnId?: string | null; runId?: string | null; messageId?: string | null } = {}) => {
+    const query = new URLSearchParams();
+    if (binding.turnId) query.set("turnId", binding.turnId);
+    if (binding.runId) query.set("runId", binding.runId);
+    if (binding.messageId) query.set("messageId", binding.messageId);
+    const url = `/api/chat/${encodeURIComponent(id)}/stream${query.size ? `?${query}` : ""}`;
+    return (await requestJson<Data<{ stopped: boolean }>>(url, t("chatState.requestFailed"), { method: "DELETE" })).data.stopped;
+  },
   setApprovalRule: (id: string, approvalRule: ApprovalRule) => requestJson<Data<ChatSummary>>(conversationPath(id), t("approval.saveFailed"), jsonBody("PATCH", { approvalRule })),
   deleteConversation: (id: string) => requestJson<unknown>(conversationPath(id), t("chatApi.deleteConversationFailed"), { method: "DELETE" }),
   listMessages: (id: string, cursor?: string) => requestJson<Page<StoredMessage>>(withCursor(`${conversationPath(id)}/messages`, cursor), t("chatApi.listMessagesFailed")),

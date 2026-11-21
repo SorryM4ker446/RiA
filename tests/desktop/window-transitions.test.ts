@@ -108,3 +108,16 @@ test("native maximize events animate without changing bounds and obsolete entran
   assert.equal(app.target.listenerCount("maximize"), 0);
   assert.equal(app.target.listenerCount("unmaximize"), 0);
 });
+
+test("quitting cancels an in-flight maximize and drops the queued close", async () => {
+  const app = fixture();
+  app.transitions.request("toggle-maximize");
+  app.transitions.request("close");
+  assert.equal(app.releases.length, 1);
+  app.transitions.dispose();
+  app.target.emit("show");
+  app.releases.shift()!();
+  await setImmediate();
+  assert.deepEqual(app.calls, []);
+  assert.equal(app.target.listenerCount("show"), 0);
+});

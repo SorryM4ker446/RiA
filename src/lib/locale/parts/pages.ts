@@ -173,7 +173,6 @@ export const pageMessages = {
   "media.error.load": "读取失败。",
   "media.error.act": "媒体操作失败。",
   "media.notice.deleted": "资源已删除，文件无法恢复。",
-  "media.notice.regenerated": "重新生成完成，已另存新资源，原文件和历史消息未改变。",
   "media.notice.downloaded": "原文件已交给下载管理器，请妥善保存。",
   "media.filter.typeLabel": "媒体类型",
   "media.filter.sourceLabel": "资源来源",
@@ -203,15 +202,11 @@ export const pageMessages = {
   "media.filter.reset": "清除筛选",
   "media.loadMore": "加载更多资源",
   "media.footnote":
-    "重新生成会再次调用模型，结果可能不同；只有明确确认后才会执行。新结果保存在资源库，不替换历史消息。",
+    "详情里有完整的提示词和来源会话；原文件可以下载，也可以在资源管理器中打开。删除只对不再被引用的资源可用。",
   "media.confirmDeleteTitle": "永久删除这个资源？",
-  "media.confirmRegenerateTitle": "按原参数重新生成？",
   "media.confirmDeleteBody": "文件将从本机永久移除，无法撤销。若出现新的引用，删除会被拒绝。",
-  "media.confirmRegenerateBody":
-    "将再次调用原模型，可能产生费用。生成结果另存为新资源，不覆盖原文件或修改历史消息。",
   "media.cancelAction": "取消操作",
   "media.confirmDeleteAction": "确认永久删除",
-  "media.confirmRegenerateAction": "确认重新生成",
 
   // --- knowledge ----------------------------------------------------------
   "knowledge.title": "知识库",

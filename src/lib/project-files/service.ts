@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { chmod, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { placeNewFile, TargetExists, withFileWriteLock } from "@/lib/local-files/file-writes";
 import { LOCAL_FILE_LIMITS, LocalFileRefused } from "@/lib/local-files/limits";
 import { resolveProjectFile } from "@/lib/local-files/safe-path";
 import { ApiError } from "@/lib/server/api-error";
@@ -164,24 +165,18 @@ export async function bindProjectEdit(input: unknown) {
   return { ...parsed, binding };
 }
 
-const locks = new Map<string, Promise<unknown>>();
-/** Serialize edits to one file inside this service; other writers are caught by the hash check. */
-async function withFileLock<T>(key: string, work: () => Promise<T>): Promise<T> {
-  const previous = locks.get(key) ?? Promise.resolve();
-  const run = previous.catch(() => {}).then(work);
-  locks.set(key, run);
-  try { return await run; } finally { if (locks.get(key) === run) locks.delete(key); }
-}
-
-async function writeAtomically(absolutePath: string, bytes: Buffer) {
+/** created: the file must not exist yet; one that appeared after the edit was planned is never written over. */
+async function writeAtomically(absolutePath: string, bytes: Buffer, created: boolean) {
   const temporary = path.join(/*turbopackIgnore: true*/ path.dirname(absolutePath), `.ria-edit-${randomUUID()}.tmp`);
   const mode = (await stat(absolutePath).catch(() => null))?.mode;
   try {
     await writeFile(temporary, bytes, { flag: "wx" });
     if (mode !== undefined && process.platform !== "win32") await chmod(temporary, mode);
-    await rename(temporary, absolutePath);
+    if (created) await placeNewFile(temporary, absolutePath);
+    else await rename(temporary, absolutePath);
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => {});
+    if (error instanceof TargetExists) throw refuse(`${path.basename(absolutePath)} was created by something else after this edit was planned. Read it and propose a new edit.`);
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "EPERM" || code === "EBUSY" || code === "EACCES") throw refuse("The file is locked or read-only; close programs using it or use the terminal.");
     throw error;
@@ -198,7 +193,7 @@ export async function applyProjectEdit(input: EditProjectFileInput, signal?: Abo
     throw refuse("The folder's terminal permission changed; propose the edit again.");
   }
   const target = await resolveProjectFile(grant, input.path, "write");
-  return withFileLock(target.absolutePath.toLowerCase(), async () => {
+  return withFileWriteLock(target.absolutePath, async () => {
     signal?.throwIfAborted();
     const plan = await planEdit(input, grant).catch(error => {
       // The approved preview no longer describes this file.
@@ -212,7 +207,7 @@ export async function applyProjectEdit(input: EditProjectFileInput, signal?: Abo
     const recorded = owner?.chatId
       ? await prepareEditCheckpoint({ chatId: owner.chatId, runId: owner.runId, grantId: grant.id, root: grant.realPath }, { path: plan.target.relativePath, before: plan.before, after: plan.after })
       : null;
-    await writeAtomically(plan.target.absolutePath, plan.after);
+    await writeAtomically(plan.target.absolutePath, plan.after, plan.created);
     await recorded?.();
     return {
       grantId: grant.id, cwd: grant.realPath, path: plan.target.relativePath, created: plan.created,

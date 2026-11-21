@@ -66,6 +66,19 @@ test("compact settings preserve unsaved fields across tabs and keep connection o
   const secureDns = page.getByRole("checkbox", { name: "代理虚拟地址回查", exact: true });
   await expect(secureDns).not.toBeChecked();
   await expect(secureDns).toHaveAccessibleDescription(/只解析到代理虚拟地址.*Cloudflare.*默认关闭/);
+  // The box leads its row, and the explanation uses the row's width rather than a narrow label column.
+  const hint = page.locator("#web-fake-ip-doh-hint");
+  const [box, hintBox, rowBox] = await Promise.all([secureDns.boundingBox(), hint.boundingBox(), secureDns.locator("xpath=..").boundingBox()]);
+  expect(box!.x).toBeLessThan(hintBox!.x);
+  expect(hintBox!.width).toBeGreaterThan(rowBox!.width * 0.8);
+  // Kept to a line or two in a wide window.
+  expect(hintBox!.height).toBeLessThanOrEqual(2 * 20 + 2);
+  // Operable from the keyboard.
+  await secureDns.focus();
+  await page.keyboard.press("Space");
+  await expect(secureDns).toBeChecked();
+  await page.keyboard.press("Space");
+  await expect(secureDns).not.toBeChecked();
   await secureDns.check();
   await page.getByRole("tab", { name: "应用偏好", exact: true }).click();
   await expect(page.getByRole("heading", { name: "关闭窗口时", exact: true })).toBeVisible();
@@ -79,6 +92,10 @@ test("compact settings preserve unsaved fields across tabs and keep connection o
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 960 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    // Narrow too, the box stays beside its title, and the explanation wraps inside the row.
+    const [narrowBox, narrowHint] = await Promise.all([secureDns.boundingBox(), hint.boundingBox()]);
+    expect(narrowBox!.x).toBeLessThan(narrowHint!.x);
+    expect(narrowHint!.x + narrowHint!.width).toBeLessThanOrEqual(width);
     await page.screenshot({ path: info.outputPath(`settings-${width}.png`), fullPage: true });
   }
 });

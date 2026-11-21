@@ -121,6 +121,13 @@ export class ConversationSession {
   private reconnecting = false;
   /** Its history has been read from the service at least once (one made here, new, has none to read). */
   private readOnce = false;
+  /**
+   * The last message of the request whose answer is being read here (the message sent, or the answer
+   * an approval resumes); null for a turn this window attached to. A stop names its turn by it.
+   */
+  private requestMessageId: string | null = null;
+  private turnId: string | null = null;
+  private readSequence = 0;
 
   constructor(id: string, transport: ChatTransport<UIMessage>, options: { history?: HistoryState; readHistory?: HistorySource } = {}) {
     this.id = id;
@@ -131,19 +138,29 @@ export class ConversationSession {
       draft: EMPTY_DRAFT, queue: [], images: {}, videos: {},
     };
     const accepted = this.acceptedSends;
+    const reading = (messageId: string | null, turnId: string | null) => {
+      this.requestMessageId = messageId;
+      this.turnId = turnId;
+      this.readSequence++;
+    };
     this.chat = new Chat<UIMessage>({
       id,
       transport: {
         async sendMessages(request) {
-          const stream = await transport.sendMessages(request);
           const sent = request.messages.at(-1);
+          const turnId = crypto.randomUUID();
+          reading(sent?.id ?? null, turnId);
+          const headers = new Headers(request.headers);
+          headers.set("x-ria-turn-id", turnId);
+          const stream = await transport.sendMessages({ ...request, headers });
           if (request.trigger === "submit-message" && sent?.role === "user") accepted.add(sent.id);
           return stream;
         },
-        reconnectToStream: request => transport.reconnectToStream(request),
+        reconnectToStream: request => { reading(null, null); return transport.reconnectToStream(request); },
       },
       sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
       onData: part => {
+        if (part.type === "data-turn-identity" && typeof part.data === "string") this.turnId = part.data;
         if (part.type === "data-turn-status") this.noteNotice(part.data as TurnNotice | { state: "running" });
         if (part.type === "data-context-status") this.set({ organizing: (part.data as { organizing: boolean }).organizing });
       },
@@ -259,8 +276,11 @@ export class ConversationSession {
       const payload = await this.readHistory(this.id);
       if (request !== this.historyRequest) return {};
       const mapped = mapStoredMessagesToUI((payload.data ?? []) as Parameters<typeof mapStoredMessagesToUI>[0]);
-      if (!options.quiet) this.chat.messages = mapped.uiMessages;
-      else if (this.chat.messages === before && !isAnswering(this.chat)) {
+      // A read that comes back after something happened here (an answer started, or one ended) is
+      // older than what is shown: it never replaces it; the next read adds what is new.
+      const unchangedHere = this.chat.messages === before && !isAnswering(this.chat);
+      if (!options.quiet) { if (unchangedHere) this.chat.messages = mapped.uiMessages; }
+      else if (unchangedHere) {
         const merged = keepUnchanged(before, mapped.uiMessages);
         if (merged !== before) this.chat.messages = merged;
       }
@@ -298,7 +318,10 @@ export class ConversationSession {
 
   /**
    * Adds what was written since it was read (a task's run, another window):
-   * only turns after the last one shown, and nothing while a turn is being read here.
+   * the turns after the last one shown (all of them when none is shown yet),
+   * and the saved version of a message shown here that was updated elsewhere
+   * (an approval answered in another window). Nothing while a turn is being
+   * read here, and nothing from a read that something here has overtaken.
    */
   async addNewTurns() {
     await this.readNewTurns(false);
@@ -307,17 +330,25 @@ export class ConversationSession {
   private async readNewTurns(forReconnect: boolean): Promise<string | undefined> {
     const canRead = () => this.state.history === "ready" && !isAnswering(this.chat) && (!this.reconnecting || forReconnect);
     if (!canRead()) return;
+    const before = this.chat.messages;
     const payload = await this.readHistory(this.id).catch(() => null);
     if (!payload || !canRead()) return;
     const mapped = mapStoredMessagesToUI((payload.data ?? []) as Parameters<typeof mapStoredMessagesToUI>[0]);
     const current = this.chat.messages;
+    // Something happened here while it was read (a turn started and ended): this read is older than that.
+    if (current !== before) return;
     const known = new Set(current.map(message => message.id));
     let lastShared = -1;
     mapped.uiMessages.forEach((message, index) => { if (known.has(message.id)) lastShared = index; });
-    // Without a turn in common the page and the store disagree on more than new turns; leave it as it is.
-    if (lastShared >= 0) {
+    if (!current.length) {
+      // An empty conversation's first turn came from elsewhere (a task, another window).
+      if (mapped.uiMessages.length) this.chat.messages = mapped.uiMessages;
+    } else if (lastShared >= 0) {
+      // Without a turn in common the page and the store disagree on more than new turns; it is left as it is.
+      const saved = new Map(mapped.uiMessages.map(message => [message.id, message]));
+      const updated = keepUnchanged(current, current.map(message => saved.get(message.id) ?? message));
       const added = mapped.uiMessages.slice(lastShared + 1).filter(message => !known.has(message.id));
-      if (added.length) this.chat.messages = [...current, ...added];
+      if (updated !== current || added.length) this.chat.messages = [...updated, ...added];
     }
     this.set({ images: { ...mapped.imageMap, ...this.state.images }, videos: { ...mapped.videoMap, ...this.state.videos } });
 
@@ -399,6 +430,24 @@ export class ConversationSession {
         return this.addNewTurns();
       })
       .catch(() => { /* The next history read can recover an interrupted reconnect. */ });
+  }
+
+  /**
+   * Names the turn being read here, for a stop meant for it alone: the run its answer belongs to, once
+   * the answer has said, and the last message of the request that started it.
+   */
+  turnBinding() {
+    return { turnId: this.turnId, messageId: this.requestMessageId, readSequence: this.readSequence };
+  }
+
+  /**
+   * Stops reading here the turn a stop was meant for, when the service had none to stop: only while
+   * this window still reads that same request, so a late stop never ends the next one.
+   */
+  stopReading(binding: { readSequence: number }) {
+    if (!isAnswering(this.chat) || this.readSequence !== binding.readSequence) return false;
+    void this.chat.stop();
+    return true;
   }
 
   /** A turn someone else started here, heard while this window was not reading one: it is new, so it can be followed. */

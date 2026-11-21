@@ -1,5 +1,10 @@
 # Database migrations
 
+`20261126100000_chat_title_source` records who a conversation's title is from (`auto`, `named`,
+`manual`), so a short model-written title replaces only the placeholder the app made from the
+first message. The default, and every existing conversation, is `named`: kept as it is. Additive;
+older builds ignore the column.
+
 `20261121100000_document_search` moves keyword search to SQLite's full-text index:
 `document_chunk_search` holds one row per chunk, its terms each written as hexadecimal UTF-8 and
 repeated by frequency, and the external-content FTS5 table `document_chunk_search_index` is kept in

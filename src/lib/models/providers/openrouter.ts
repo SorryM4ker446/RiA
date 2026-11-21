@@ -4,7 +4,7 @@ import { z } from "zod";
 import { BodyReadError, readLimitedJson } from "@/lib/models/catalog-read";
 import { libraryModes, reasoningEfforts, type ReasoningCapability } from "@/lib/models/preferences-schema";
 import { openRouterImagePrices, openRouterVideoPrices } from "@/lib/models/catalog-prices";
-import { CatalogFetchError, type CatalogModel, type ModelProvider, type ReasoningPreference } from "@/lib/models/providers/types";
+import { CatalogFetchError, type CatalogGenerator, type CatalogModel, type ModelProvider, type ReasoningPreference } from "@/lib/models/providers/types";
 
 const catalogMaxBodyBytes = 8 * 1024 * 1024;
 const openRouterSettings = {
@@ -104,7 +104,18 @@ function closestEffort(wanted: NonNullable<ReasoningPreference["effort"]>, offer
   }, offered.find(effort => effort !== "none") ?? wanted);
 }
 
-function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[number]): CatalogModel | null {
+/**
+ * A chat catalog row whose model also outputs pictures or video is an image or
+ * video model (Nano Banana and the like): the text catalog lists it because it
+ * writes text beside what it makes. Such a model is offered for those modes,
+ * from their own catalogs, never as a chat model. A model that reads images and
+ * writes only text is a chat model.
+ */
+const mediaOutputs = (outputs: string[]) => outputs.filter((output): output is "image" | "video" => output === "image" || output === "video");
+
+const isGenerator = (item: CatalogModel | { generator: CatalogGenerator }): item is { generator: CatalogGenerator } => "generator" in item;
+
+function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[number]): CatalogModel | { generator: CatalogGenerator } | null {
   const parsed = rawModel.safeParse(value);
   if (!parsed.success || !openRouterModelIdSchema.safeParse(parsed.data.id).success) return null;
   const row = parsed.data;
@@ -114,6 +125,7 @@ function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[numb
   const parameters = row.supported_parameters ?? [];
   const parameterNames = Array.isArray(parameters) ? parameters : Object.keys(parameters);
   const frameImages = row.supported_frame_images ?? [];
+  if (mode === "chat" && mediaOutputs(outputs).length) return { generator: { modelId: row.id, outputs: mediaOutputs(outputs) } };
   if (mode === "chat" && !outputs.includes("text")) return null;
   return {
     providerId: "openrouter",
@@ -126,6 +138,7 @@ function normalizeOpenRouterRow(value: unknown, mode: (typeof libraryModes)[numb
       : inputs.includes("image") || parameterNames.some(x => ["image", "input_image", "frame_images", "input_references"].includes(x)),
     endpointImageInput: null,
     supportsTools: mode === "chat" && parameterNames.some(x => ["tools", "tool_choice"].includes(x)),
+    ...(mode === "chat" ? { outputs } : {}),
     // Three ways the provider says it will search on its own: the `:online`
     // variant of any slug, a per-request search-context price, or a declared
     // web search parameter. Any of them means the answer is grounded by the
@@ -177,6 +190,7 @@ async function fetchOpenRouterCatalog(mode: (typeof libraryModes)[number], signa
   if (!envelope.success) throw new CatalogFetchError("invalidShape");
   const seen = new Set<string>();
   const models: CatalogModel[] = [];
+  const generators: CatalogGenerator[] = [];
   let invalidRows = 0;
   // A handful of malformed or duplicated rows is normal for a live third-party
   // feed and says nothing about the rows that parsed cleanly. Discarding the
@@ -185,11 +199,15 @@ async function fetchOpenRouterCatalog(mode: (typeof libraryModes)[number], signa
   // a warning and only an entirely empty result is a failure.
   for (const value of envelope.data.data) {
     const item = normalizeOpenRouterRow(value, mode);
-    if (!item || seen.has(item.modelId)) { invalidRows++; continue; }
-    seen.add(item.modelId);
-    models.push(item);
+    // Left out on purpose, not malformed: it is not counted as a skipped row.
+    if (!item) { invalidRows++; continue; }
+    if (isGenerator(item)) { generators.push(item.generator); continue; }
+    const model: CatalogModel = item;
+    if (seen.has(model.modelId)) { invalidRows++; continue; }
+    seen.add(model.modelId);
+    models.push(model);
   }
-  if (models.length === 0) throw new CatalogFetchError("emptyCatalog", invalidRows ? String(invalidRows) : undefined);
+  if (models.length === 0 && generators.length === 0) throw new CatalogFetchError("emptyCatalog", invalidRows ? String(invalidRows) : undefined);
   if (mode === "image") {
     // Price discovery is bounded and shares the catalog's cancellation. Never
     // follow the feed's endpoint URLs: construct them on the trusted API host.
@@ -221,7 +239,7 @@ async function fetchOpenRouterCatalog(mode: (typeof libraryModes)[number], signa
       }
     }));
   }
-  return { models, invalidRows };
+  return { models, invalidRows, ...(mode === "chat" ? { generators: generators.filter(generator => !seen.has(generator.modelId)) } : {}) };
 }
 
 export const openRouterProvider: ModelProvider = {

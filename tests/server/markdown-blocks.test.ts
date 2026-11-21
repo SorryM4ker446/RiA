@@ -5,14 +5,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import remarkCjkFriendly from "remark-cjk-friendly";
 import { splitMarkdownBlocks } from "@/components/chat/markdown-blocks";
 import { longAnswer, longReport } from "../helpers/stream-load";
 
-const render = (text: string) => createElement(ReactMarkdown, { remarkPlugins: [remarkGfm], rehypePlugins: [rehypeSanitize] }, text);
+// The transcript's own inline rules: GitHub-flavoured, with CJK-friendly emphasis.
+const remarkPlugins = [remarkGfm, remarkCjkFriendly];
+const render = (text: string) => createElement(ReactMarkdown, { remarkPlugins, rehypePlugins: [rehypeSanitize] }, text);
 // Whitespace text between block elements is not rendered by the transcript.
 const html = (node: ReactElement) => renderToStaticMarkup(node).replace(/>\s+</g, "><").trim();
 const whole = (text: string) => html(render(text));
-const split = (text: string) => html(createElement(Fragment, null, ...splitMarkdownBlocks(text).map((block, key) => createElement(ReactMarkdown, { key, remarkPlugins: [remarkGfm], rehypePlugins: [rehypeSanitize] }, block))));
+const split = (text: string) => html(createElement(Fragment, null, ...splitMarkdownBlocks(text).map((block, key) => createElement(ReactMarkdown, { key, remarkPlugins, rehypePlugins: [rehypeSanitize] }, block))));
 
 const tricky: Record<string, string> = {
   "fence holding blank lines and a shorter fence": "intro\n\n````md\n```js\n\nconst a = 1;\n```\n\nstill code\n````\n\nafter",
@@ -34,6 +37,7 @@ const tricky: Record<string, string> = {
   "whitespace-only separator line": "a\n   \nb\n\t\nc",
   "carriage returns": "# h\r\n\r\npara\r\n\r\n- a\r\n\r\n- b\r\n",
   "emphasis and links": "**粗体** _斜体_ [链接](https://example.com) `代码`\n\n第二段 ~~删除~~ https://example.com",
+  "bold closed after Chinese punctuation": "**总体判断：**项目工程化。\n\n**一句话。**下一句，**甲：**乙",
 };
 
 test("split markdown renders exactly like the whole text, including every partial stream", () => {

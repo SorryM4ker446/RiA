@@ -45,7 +45,6 @@ export default function MediaPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  const [operation, setOperation] = useState<"delete" | "regenerate">("delete");
   const dialog = useRef<HTMLDialogElement>(null);
   const requests = useRef({ version: 0 });
   const locked = useRef(false);
@@ -88,16 +87,27 @@ export default function MediaPage() {
     const id = selected.id;
     dialog.current?.close();
     void act(async () => {
-      if (operation === "delete") {
-        await mediaApi.delete(id); setDetailOpen(false);
-        await animateRemoval(id, async () => { setRevision(value => value + 1); await load(); });
-        toast(t("media.notice.deleted"));
-        return;
-      }
-      const result = await mediaApi.regenerate(id); await show(result.asset.assetId); toast(t("media.notice.regenerated"));
-      setRevision(value => value + 1); await load();
+      await mediaApi.delete(id); setDetailOpen(false);
+      await animateRemoval(id, async () => { setRevision(value => value + 1); await load(); });
+      toast(t("media.notice.deleted"));
     });
   }
+  /** Selects the asset's own file in the file manager. The service says where it is; the desktop app shows it. */
+  function showInFolder(id: string) {
+    const bridge = window.riaDesktop;
+    if (!bridge?.revealPath) { setError(t("asset.showInExplorerDesktopOnly")); return; }
+    void act(async () => {
+      const { data } = await mediaApi.locate(id);
+      if (!(await bridge.revealPath(data.absolutePath)).revealed) throw new Error(t("asset.showInExplorerFailed"));
+    });
+  }
+  // Opened from elsewhere (a picture in a conversation) with the asset to show.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("asset");
+    if (!id) return;
+    void act(() => show(id));
+    // Only on arrival: the address is not kept in step with what is selected afterwards.
+  }, []);
   const disabled = busy || loading;
   const refresh = () => { setSelected(null); setRevision(value => value + 1); void load(); };
   // Read again when the window comes back into view, instead of a refresh button.
@@ -133,7 +143,8 @@ export default function MediaPage() {
           : <span className="text-xs text-muted-foreground">{t("media.videoHint")}</span>}
       </div>
       {/* The caption stays out of the way until the thumbnail is pointed at or focused. */}
-      <div className="media-card-caption"><p className="truncate text-xs font-medium">{asset.description || t("media.noDescription")}</p><p className="truncate text-[11px] text-muted-foreground">{`${assetKind(asset.kind)} · ${formatBytes(asset.byteSize)} · ${asset.referenceCount} ${t("media.referenceCount")}`}</p></div>
+      {/* What it is and how it is used; its prompt is read in full in the details, not over the picture. */}
+      <div className="media-card-caption"><p className="truncate text-[11px] text-muted-foreground">{`${assetKind(asset.kind)} · ${formatBytes(asset.byteSize)} · ${asset.referenceCount} ${t("media.referenceCount")}`}</p></div>
     </article>)}</div>
     {/* Only announce a load when there is nothing on screen yet. Re-announcing
         it over an intact list is what made a refresh read as a re-render. */}
@@ -153,12 +164,13 @@ export default function MediaPage() {
         <Reveal className="-mb-4">{error ? <p role="alert" className="mb-4 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage(error)}</p> : null}</Reveal>
         {selected && <AssetDetailPanel key={selected.id} asset={selected} busy={disabled} close={() => setDetailOpen(false)} openChat={openChat} inspect={id => { void act(() => show(id)); }}
           download={() => { void act(async () => { await mediaApi.download(selected.id); toast(t("media.notice.downloaded")); }); }}
-          remove={() => { setOperation("delete"); dialog.current?.showModal(); }} regenerate={() => { setOperation("regenerate"); dialog.current?.showModal(); }} />}
+          remove={() => dialog.current?.showModal()} showInFolder={() => showInFolder(selected.id)}
+          copyPrompt={text => { void navigator.clipboard.writeText(text).then(() => toast(t("asset.promptCopied")), () => setError(t("media.error.act"))); }} />}
         <dialog ref={dialog} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); dialog.current?.close(); } }} aria-labelledby="media-confirm-title" aria-describedby="media-confirm-description" className="w-[min(32rem,90vw)] rounded-lg bg-background p-6 text-foreground shadow-pop backdrop:bg-foreground/30">
-          <h2 id="media-confirm-title" className="text-lg font-semibold tracking-title">{operation === "delete" ? t("media.confirmDeleteTitle") : t("media.confirmRegenerateTitle")}</h2>
-          <p id="media-confirm-description" className="my-4 text-sm text-muted-foreground">{operation === "delete" ? t("media.confirmDeleteBody") : t("media.confirmRegenerateBody")}</p>
+          <h2 id="media-confirm-title" className="text-lg font-semibold tracking-title">{t("media.confirmDeleteTitle")}</h2>
+          <p id="media-confirm-description" className="my-4 text-sm text-muted-foreground">{t("media.confirmDeleteBody")}</p>
           <p className="mb-4 break-all font-mono text-xs text-muted-foreground">{selected?.id}</p>
-          <div className="flex justify-end gap-2"><Button autoFocus disabled={busy} variant="ghost" onClick={() => dialog.current?.close()}>{t("media.cancelAction")}</Button><Button disabled={busy} variant={operation === "delete" ? "destructive" : "default"} onClick={confirm}>{operation === "delete" ? t("media.confirmDeleteAction") : t("media.confirmRegenerateAction")}</Button></div>
+          <div className="flex justify-end gap-2"><Button autoFocus disabled={busy} variant="ghost" onClick={() => dialog.current?.close()}>{t("media.cancelAction")}</Button><Button disabled={busy} variant="destructive" onClick={confirm}>{t("media.confirmDeleteAction")}</Button></div>
         </dialog>
       </SheetContent>
     </Sheet>
