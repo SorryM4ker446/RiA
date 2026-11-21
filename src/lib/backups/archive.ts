@@ -77,7 +77,7 @@ export async function createAccountBackup(prune = true) {
   const [documentsCount, eventCount, reviewCount] = await Promise.all([db.knowledgeDocument.count(), db.workspaceEvent.count(), db.workspaceReview.count()]);
   const [volume] = await db.$queryRaw<{ bytes: number | bigint }[]>(Prisma.sql`SELECT
     (SELECT coalesce(sum(length(CAST(content AS BLOB))),0) FROM messages) +
-    (SELECT coalesce(sum(length(CAST(title AS BLOB))+coalesce(length(CAST(assistantConfig AS BLOB)),0)),0) FROM chats) +
+    (SELECT coalesce(sum(length(CAST(title AS BLOB))+coalesce(length(CAST(assistantConfig AS BLOB)),0)+coalesce(length(CAST(modelPreferences AS BLOB)),0)),0) FROM chats) +
     (SELECT coalesce(sum(length(CAST(config AS BLOB))),0) FROM assistant_templates) +
     (SELECT coalesce(sum(length(CAST(key AS BLOB))+length(CAST(value AS BLOB))+coalesce(length(CAST(embedding AS BLOB)),0)),0) FROM memories) +
     (SELECT coalesce(sum(coalesce(length(CAST(description AS BLOB)),0)+coalesce(length(CAST(generation AS BLOB)),0)),0) FROM media_assets) +
@@ -124,7 +124,7 @@ export async function createAccountBackup(prune = true) {
       blocks.push({ path, byteSize: bytes.byteLength, sha256: contentDigest(bytes) });
     }
     const archivedDocuments = documents.map(({ _count, ...document }, index) => ({ ...document, chunkCount: _count.chunks, content: { byteSize: blocks[index].byteSize, sha256: blocks[index].sha256 } }));
-    const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 2, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, ...chat }) => ({ ...chat, messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks: [], documents: archivedDocuments, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, memoryDocument })));
+    const manifest = backupManifestSchema.parse(JSON.parse(JSON.stringify({ format: BACKUP_FORMAT, version: 2, createdAt: new Date().toISOString(), chats: chats.map(({ workspaceGrantId: _workspace, modelPreferences, ...chat }) => ({ ...chat, ...(modelPreferences ? { modelPreferences } : {}), messages: chat.messages.map(message => ({ ...message, content: portableContent(message.content) })) })), memories, tasks: [], documents: archivedDocuments, assets: media, preferences, usage, events, activityCoverage, reviews, assistantTemplates, memoryDocument })));
     // The schema fills in the fields only older archives hold; a new archive leaves them out.
     const { topics: _topics, artifacts: _results, ...written } = manifest;
     const json = Buffer.from(JSON.stringify(written));

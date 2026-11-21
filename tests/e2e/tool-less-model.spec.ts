@@ -1,5 +1,5 @@
 import { expect, test, test as base, type Page } from "@playwright/test";
-import { configureOfflineModels, fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { configureOfflineModels, fixtureLibraryItem, mockConversationModelPreferences, modelsRouteFixture } from "../helpers/model-fixture";
 import { browserApi } from "../helpers/browser-api";
 import { chosenWords, composerInput, slashOption } from "../helpers/slash-menu";
 import { startStandaloneServer } from "../helpers/standalone-server";
@@ -149,7 +149,9 @@ withTools("with a model that cannot call tools the composer offers what still wo
 test("a request waiting for approval offers to change the model or give the request up, since either answer continues the turn", async ({ page }) => {
   const now = "2026-08-30T00:00:00Z";
   await library(page);
-  await page.route("**/api/conversations", route => route.fulfill({ json: { data: [{ id: "pending", title: "Pending", lastMessageAt: now, messageCount: 2 }] } }));
+  const pending = { id: "pending", title: "Pending", lastMessageAt: now, messageCount: 2, modelPreferences: null };
+  await page.route("**/api/conversations", route => route.fulfill({ json: { data: [pending] } }));
+  await mockConversationModelPreferences(page, pending);
   await page.route("**/api/conversations/*/messages", route => route.fulfill({ json: { data: [
     { id: "u", clientMessageId: "u", role: "user", content: "Make a task", createdAt: now },
     { id: "a", clientMessageId: "a", role: "assistant", createdAt: now, content: "__ASSISTANT_TOOL_MESSAGE__:" + JSON.stringify({ type: "assistant-tool-message", text: "Please approve", tools: [{ toolName: "createTask", toolCallId: "call-1", state: "approval-requested", input: { title: "Task" }, approval: { id: "approval-1" } }] }) },
@@ -185,14 +187,28 @@ withTools("choosing a template that uses tools asks again, and what follows is t
   const network = watchNetwork(page);
   await openWorkspace(page, app.origin);
   await library(page);
-  await page.goto(`${app.origin}/chat`);
-  await notice(page).getByRole("button", { name: "继续使用" }).click();
-  await expect(notice(page)).toHaveCount(0);
-
+  let releaseList!: () => void;
+  const listReady = new Promise<void>(resolve => { releaseList = resolve; });
+  await page.route(/\/api\/conversations(?:\?.*)?$/, async route => {
+    if (route.request().method() === "GET") await listReady;
+    await route.fallback();
+  });
   const input = composerInput(page);
-  await input.click();
-  await page.keyboard.type("/资料研究");
-  await expect(slashOption(page, "资料研究助理")).toBeVisible();
+  const template = slashOption(page, "资料研究助理");
+  try {
+    await page.goto(`${app.origin}/chat`);
+    await notice(page).getByRole("button", { name: "继续使用" }).click();
+    await expect(notice(page)).toHaveCount(0);
+    await input.click();
+    await page.keyboard.type("/资料研究");
+    await expect(template).toBeDisabled();
+    await page.keyboard.press("Enter");
+    await expect(input).toHaveValue("/资料研究");
+  } finally {
+    releaseList();
+  }
+  await expect(template).toBeEnabled();
+  await expect(template).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Enter");
   await expect(notice(page), "the template relies on tools the model cannot call").toBeVisible();
   await expect(notice(page)).toContainText("不支持工具调用");

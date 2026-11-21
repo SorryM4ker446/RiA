@@ -10,6 +10,7 @@ import { readAssistantSnapshot } from "@/lib/assistants/schema";
 import { decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
 import { taskModel } from "@/lib/scheduler/jobs";
 import { readApprovalRule } from "@/lib/approvals/rules";
+import { readChatModelPreferences } from "@/lib/chat/model-preferences";
 
 import { t } from "@/lib/locale";
 export const chatTagSchema = z.string().trim().min(1).max(32)
@@ -70,6 +71,7 @@ export function conversationSummary(chat: Chat & { tags: { label: string }[]; _c
     // A task's conversation works in the task's folder and takes no template.
     workspaceGrantId: task ? task.workspaceGrantId : chat.workspaceGrantId,
     assistantConfig: task ? null : readAssistantSnapshot(chat.assistantConfig),
+    modelPreferences: readChatModelPreferences(chat.modelPreferences),
     createdAt: chat.createdAt, updatedAt: chat.updatedAt, lastMessageAt: chat.lastMessageAt,
     tags: chat.tags.map(tag => tag.label), messageCount: chat._count.messages,
     // The task that owns this conversation: it writes here by itself, so an open

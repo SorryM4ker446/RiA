@@ -105,7 +105,7 @@ export async function restoreAccountBackup(id: string) {
         const validSummary = chat.summary && chat.summaryRevision != null && chat.summaryRevision === (chat.historyRevision ?? 0)
           && (!chat.summaryUpToMessageId ? Boolean(chat.summaryState) : messages.some(message => message.id === chat.summaryUpToMessageId));
         // A backup from before titles recorded who wrote them: kept as they are, never renamed by a model.
-        return { ...chat, titleSource: chat.titleSource ?? "named", assistantConfig: chat.assistantConfig ? { ...chat.assistantConfig, templateId: templateIds.get(chat.assistantConfig.templateId) ?? chat.assistantConfig.templateId } : Prisma.DbNull, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
+        return { ...chat, titleSource: chat.titleSource ?? "named", assistantConfig: chat.assistantConfig ? { ...chat.assistantConfig, templateId: templateIds.get(chat.assistantConfig.templateId) ?? chat.assistantConfig.templateId } : Prisma.DbNull, modelPreferences: chat.modelPreferences ?? Prisma.DbNull, id: mapped(chat.id), historyRevision: chat.historyRevision ?? 0,
           summary: validSummary ? chat.summary : null, summaryRevision: validSummary ? chat.summaryRevision : null,
           summaryModelId: validSummary ? chat.summaryModelId : null,
           summaryState: validSummary ? chat.summaryState : null,

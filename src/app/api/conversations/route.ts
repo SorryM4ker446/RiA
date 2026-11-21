@@ -9,6 +9,7 @@ import { createChat } from "@/lib/chat/store";
 import { listConversations } from "@/lib/conversations/query";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
 import { assistantIdSchema } from "@/lib/assistants/schema";
+import { chatModelPreferencesSchema } from "@/lib/chat/model-preferences";
 
 const createConversationSchema = z.strictObject({
   id: z.string().trim().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
@@ -16,6 +17,7 @@ const createConversationSchema = z.strictObject({
   // A title the page made from the first message, which a model-written one may replace; any other given title is a name.
   titleSource: z.literal("auto").optional(),
   assistantTemplateId: assistantIdSchema.optional(),
+  modelPreferences: chatModelPreferencesSchema.optional(),
 });
 
 async function GETHandler(req: NextRequest) {
@@ -42,6 +44,7 @@ async function POSTHandler(req: NextRequest) {
     const conversation = await createChat({
       chatId: parsed.data.id,
       assistantTemplateId: parsed.data.assistantTemplateId,
+      modelPreferences: parsed.data.modelPreferences,
       ...(parsed.data.title ? { title: truncateTitle(parsed.data.title) } : {}),
       titleSource: !parsed.data.title || parsed.data.titleSource === "auto" ? "auto" : "manual",
     });

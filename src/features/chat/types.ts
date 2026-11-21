@@ -1,9 +1,6 @@
-import {
-  ChatSummary,
-  ModelMode
-} from "@/features/chat/page-utils";
+import type { ChatSummary } from "@/features/chat/page-utils";
 import { UIMessage } from "ai";
-import type { ModelRef } from "@/lib/models/preferences-schema";
+import type { ChatModelPreferences } from "@/lib/chat/model-preferences";
 import type { ToolSurface } from "@/tools/types";
 
 export type ToolDocumentSelection = { id: string; filename: string };
@@ -25,12 +22,7 @@ export type ToolCatalogItem = {
 
 export type SkillCatalogItem = { packageId: string; skillId: string; name: string; description: string; plugin: string };
 
-export type ChatScopedPreferences = {
-  modelMode: ModelMode;
-  selectedChatModel: ModelRef | null;
-  selectedImageModel: ModelRef | null;
-  selectedVideoModel: ModelRef | null;
-};
+export type ChatScopedPreferences = ChatModelPreferences;
 
 export type DeleteTarget =
   | { kind: "chat"; chat: ChatSummary }

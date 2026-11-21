@@ -6,7 +6,7 @@ import { ChatSummary } from "@/features/chat/page-utils";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chatApi } from "@/features/chat/api-client";
-import { getChatPrefsStorageKey, loadAccountChatDefaults } from "@/features/chat/preferences";
+import { loadAccountChatDefaults } from "@/features/chat/preferences";
 import type { ChatScopedPreferences } from "@/features/chat/types";
 import { LAST_ACTIVE_CHAT_STORAGE_KEY } from "@/features/chat/types";
 import { takeRequestedConversation } from "@/features/chat/open-conversation";
@@ -132,14 +132,10 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     setPageError(null);
     const creation = (async () => {
       const defaults = await loadAccountChatDefaults();
-      const payload = await chatApi.createConversation();
+      const payload = await chatApi.createConversation(undefined, undefined, defaults.preferences);
       const chat = payload.data;
-      const seededPreferences: ChatScopedPreferences = {
-        ...defaults.preferences,
-      };
-
-      window.localStorage.setItem(getChatPrefsStorageKey(chat.id), JSON.stringify(seededPreferences));
-      applyChatPreferences(seededPreferences);
+      setChats(previous => [chat, ...previous.filter(item => item.id !== chat.id)]);
+      applyChatPreferences(defaults.preferences);
 
       startingFreshRef.current = false;
       setActiveChatId(chat.id);
@@ -184,15 +180,14 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
 
     if (activeChatId) return activeChatId;
 
-    const payload = await chatApi.createConversation(normalizedSeed || "New Chat");
-    const chatId = payload.data.id;
-    const seededPreferences: ChatScopedPreferences = {
+    const { data: chat } = await chatApi.createConversation(normalizedSeed || "New Chat", undefined, {
       modelMode,
       selectedChatModel,
       selectedImageModel,
       selectedVideoModel,
-    };
-    window.localStorage.setItem(getChatPrefsStorageKey(chatId), JSON.stringify(seededPreferences));
+    });
+    const chatId = chat.id;
+    setChats(previous => [chat, ...previous.filter(item => item.id !== chatId)]);
     onCreated?.(chatId);
     if (!shouldActivate) {
       setActiveChatId(chatId);
@@ -321,21 +316,19 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
     try { const payload = await chatApi.listAssistants(signal); if (!signal?.aborted) { setAssistants(payload.data); setAssistantsError(""); } }
     catch (error) { if (!signal?.aborted) setAssistantsError(error instanceof Error ? error.message : t("ui.chat.api-client.couldNotLoadAssistantTemplates")); }
   }, []);
+  const canApplyAssistant = !isLoadingChats && !isCreatingChat && !isDocumentScopeSaving && restoringChatId === null &&
+    (activeChatId === null || Boolean(activeChat && !activeChat.task));
   async function applyAssistant(templateId: string | null) {
-    const chat = chats.find(item => item.id === activeChatId);
-    // Before the first conversation there is nothing to apply a template to, so
-    // choosing one starts that conversation with it, named after the template.
-    const starting = !chat && !activeChatId && templateId !== null;
-    if ((!chat && !starting) || isLoadingChats || scopeSavingRef.current) return;
+    if (!canApplyAssistant || scopeSavingRef.current || (!activeChat && templateId === null)) return;
     scopeSavingRef.current = true; invalidateChatReads(); setIsDocumentScopeSaving(true); setPageError(null);
     try {
-      if (chat) {
-        const payload = await chatApi.setAssistant(chat.id, templateId);
-        setChats(previous => previous.map(item => item.id === chat.id ? payload.data : item));
-      } else {
-        const created = (await chatApi.createConversation(undefined, templateId!)).data;
-        window.localStorage.setItem(getChatPrefsStorageKey(created.id), JSON.stringify({ modelMode, selectedChatModel, selectedImageModel, selectedVideoModel }));
-        setChats(previous => [created, ...previous]);
+      if (activeChat) {
+        const payload = await chatApi.setAssistant(activeChat.id, templateId);
+        setChats(previous => previous.map(item => item.id === activeChat.id ? payload.data : item));
+      } else if (templateId !== null) {
+        // Choosing a template on the draft starts a conversation named after it.
+        const created = (await chatApi.createConversation(undefined, templateId, { modelMode, selectedChatModel, selectedImageModel, selectedVideoModel })).data;
+        setChats(previous => [created, ...previous.filter(item => item.id !== created.id)]);
         setActiveChatId(created.id);
       }
     } catch (error) { setPageError(error instanceof Error ? error.message : t("ui.chat.api-client.couldNotApplyAssistantTemplate")); }
@@ -343,7 +336,7 @@ export function useConversations({ activeChatId, setActiveChatId, preferences, a
   }
 
   return {
-    assistants, assistantsError, loadAssistants, applyAssistant,
+    assistants, assistantsError, loadAssistants, applyAssistant, canApplyAssistant,
     toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving,
     setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, restoringChatId, isRestoringChat: (chatId: string) => restoringRef.current === chatId,
     chats, activeChat, isLoadingChats, isCreatingChat,

@@ -78,7 +78,7 @@ export function useChatState() {
     chats, activeChat, isLoadingChats, isCreatingChat,
     loadChats, createNewChat, performDeleteChat, ensureActiveChatId,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, toggleEphemeral, isEphemeralSaving,
-    isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+    isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant, canApplyAssistant,
     setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, restoringChatId, isRestoringChat,
   } = useConversations({ activeChatId, setActiveChatId, preferences: { modelMode, selectedChatModel: preferredChatModel, selectedImageModel, selectedVideoModel }, applyChatPreferences, resetConversation, setPageError });
   // A remembered conversation the list has not confirmed yet is not one to send to,
@@ -531,7 +531,7 @@ export function useChatState() {
 
   return {
     declineApprovals,
-    toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant,
+    toggleEphemeral, isEphemeralSaving, isDocumentScopeSaving, assistants, assistantsError, loadAssistants, applyAssistant, canApplyAssistant,
     setWorkspace, isWorkspaceSaving, setApprovalRule, isApprovalSaving, loadChats,
     nextChatsCursor, isLoadingMoreChats, loadMoreChats, olderMessagesCursor: state.olderCursor, isLoadingOlderMessages: state.loadingOlder, loadOlderMessages,
     isLoadingChats, isCreatingChat, createNewChat, askInNewChat, chats, activeChatId, switchActiveChat,

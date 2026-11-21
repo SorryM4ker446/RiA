@@ -1,7 +1,7 @@
 import { conversationList, openRecentConversations } from "../helpers/conversations";
 import { expect, test, type Page } from "@playwright/test";
 import { DEFAULT_IMAGE_MODEL, DEFAULT_MODEL, DEFAULT_VIDEO_MODEL } from "../../src/config/model";
-import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { fixtureLibraryItem, mockConversationModelPreferences, modelsRouteFixture } from "../helpers/model-fixture";
 
 const now = "2026-08-30T00:00:00Z";
 const summary = (id: string, title: string) => ({ id, title, lastMessageAt: now, messageCount: 1 });
@@ -19,11 +19,12 @@ async function emptyPanels(page: Page) {
 for (const lateFailure of [false, true]) {
   test(`conversation switching ignores late history ${lateFailure ? "errors" : "results"} and restores its own preferences`, async ({ page }) => {
     await emptyPanels(page);
-    await page.route("**/api/conversations", (route) => route.fulfill({ json: { data: [summary("a", "Alpha"), summary("b", "Beta")] } }));
+    const beta = { ...summary("b", "Beta"), modelPreferences: { modelMode: "chat" } };
+    await page.route("**/api/conversations", (route) => route.fulfill({ json: { data: [summary("a", "Alpha"), beta] } }));
     await page.addInitScript((defaults) => {
       localStorage.setItem("chat:last-active-id", "a");
       localStorage.setItem("chat:prefs:a", JSON.stringify({ ...defaults, modelMode: "image" }));
-      localStorage.setItem("chat:prefs:b", JSON.stringify({ ...defaults, modelMode: "chat", manualToolsOnly: true }));
+      localStorage.setItem("chat:prefs:b", JSON.stringify({ ...defaults, modelMode: "image", manualToolsOnly: true }));
     }, { selectedChatModel: DEFAULT_MODEL, selectedImageModel: DEFAULT_IMAGE_MODEL, selectedVideoModel: DEFAULT_VIDEO_MODEL, selectedManualTool: "none", manualToolsOnly: false });
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -45,6 +46,7 @@ for (const lateFailure of [false, true]) {
       await openRecentConversations(page);
       await page.getByRole("button", { name: /^Beta/ }).click();
       await betaRequest;
+      await expect(page.getByPlaceholder(/输入你的问题/)).toBeVisible();
       await expect(page.getByRole("checkbox", { name: "仅手动" })).toHaveCount(0);
       await openRecentConversations(page);
       await page.getByRole("button", { name: /^Alpha/ }).click();
@@ -57,11 +59,6 @@ for (const lateFailure of [false, true]) {
       await expect(page.getByText("Alpha answer", { exact: true })).toBeVisible();
       await expect(page.getByText("Beta answer", { exact: true })).toHaveCount(0);
       await expect(page.getByRole("alert").filter({ hasText: "请求失败" })).toHaveCount(0);
-      const preferences = await page.evaluate(() => [JSON.parse(localStorage.getItem("chat:prefs:a")!), JSON.parse(localStorage.getItem("chat:prefs:b")!)]);
-      expect(preferences[0].modelMode).toBe("image");
-      expect(preferences[1].modelMode).toBe("chat");
-      expect(preferences[1].manualToolsOnly).toBeUndefined();
-      expect(preferences[1].selectedManualTool).toBeUndefined();
     } finally { release(); }
   });
 }
@@ -118,7 +115,9 @@ test("video generation preserves the asset reference and renders it after reload
   await emptyPanels(page);
   const history: ReturnType<typeof storedMessage>[] = [];
   const asset = { assetId: "fixture-video", relativePath: "fixture.mp4", mediaType: "video/mp4", url: "/api/media/fixture-video" };
-  await page.route("**/api/conversations", (route) => route.fulfill({ json: { data: [summary("video-chat", "Video fixture")] } }));
+  const videoChat = { ...summary("video-chat", "Video fixture"), modelPreferences: null };
+  await page.route("**/api/conversations", (route) => route.fulfill({ json: { data: [videoChat] } }));
+  await mockConversationModelPreferences(page, videoChat);
   await page.route("**/api/conversations/video-chat/messages", async (route) => {
     if (route.request().method() === "POST") {
       const body = route.request().postDataJSON();

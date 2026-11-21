@@ -44,9 +44,10 @@ export const chatApi = {
     }
   },
   // The page names a conversation only from its first message, which a model-written title may replace.
-  createConversation: (title?: string, assistantTemplateId?: string) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title, assistantTemplateId, ...(title ? { titleSource: "auto" } : {}) })),
+  createConversation: (title?: string, assistantTemplateId?: string, modelPreferences?: ChatScopedPreferences) => requestJson<Data<ChatSummary>>("/api/conversations", t("chatApi.createConversationFailed"), jsonBody("POST", { title, assistantTemplateId, modelPreferences, ...(title ? { titleSource: "auto" } : {}) })),
   listAssistants: (signal?: AbortSignal) => requestJson<Data<AssistantTemplate[]>>("/api/assistants", t("ui.chat.api-client.couldNotLoadAssistantTemplates"), { signal }),
   setAssistant: (id: string, assistantTemplateId: string | null) => requestJson<Data<ChatSummary>>(conversationPath(id), t("ui.chat.api-client.couldNotApplyAssistantTemplate"), jsonBody("PATCH", { assistantTemplateId })),
+  setModelPreferences: (id: string, modelPreferences: ChatScopedPreferences) => requestJson<Data<ChatSummary>>(conversationPath(id), t("chatPrefs.saveFailed"), jsonBody("PATCH", { modelPreferences })),
   setPinned: (id: string, pinned: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("sidebar.failed"), jsonBody("PATCH", { pinned })),
   setArchived: (id: string, archived: boolean) => requestJson<Data<ChatSummary>>(conversationPath(id), t("sidebar.failed"), jsonBody("PATCH", { archived })),
   // automatic: a title made from the first message, which a model-written title may still replace; otherwise the user named it.

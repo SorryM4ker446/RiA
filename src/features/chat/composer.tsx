@@ -75,6 +75,7 @@ type Props = Pick<
   | "toolCatalogError"
   | "assistants"
   | "applyAssistant"
+  | "canApplyAssistant"
   | "setInput"
   | "handleTextareaKeyDown"
   | "onTextareaPaste"
@@ -134,6 +135,7 @@ export function Composer({
   toolCatalogError,
   assistants,
   applyAssistant,
+  canApplyAssistant,
   setInput,
   handleTextareaKeyDown,
   onTextareaPaste,
@@ -194,7 +196,7 @@ export function Composer({
 
   // ---- The slash menu: what the word being typed offers, and moving through it.
   const menu = useSlashMenu({
-    modelMode, input, setInput, tools, skills, assistants, choice, chooseTool, toggleSkill, applyAssistant, isPending, loadToolCatalog,
+    modelMode, input, setInput, tools, skills, assistants, choice, chooseTool, toggleSkill, applyAssistant, canApplyAssistant, isPending, loadToolCatalog,
     removeLastChoice, handleTextareaKeyDown, textareaRef, allowedToolIds, modelCanCallTools, activeTemplateId: activeChat?.assistantConfig?.templateId,
   });
 
@@ -335,7 +337,7 @@ export function Composer({
             {/* Choosing a document tool already says what kind of work this is, and a
               conversion needs no model, so their controls make way for its own. */}
             {isDocumentTool ? null : <Select
-              disabled={isPending}
+              disabled={isPending || isLoadingPreferences}
               onValueChange={(value) => onModeSelect(value as ModelMode)}
               value={modelMode}
             >
@@ -360,7 +362,7 @@ export function Composer({
               </SelectContent>
             </Select>}
             {isConvertTool ? null : <Select
-              disabled={isPending || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
+              disabled={isPending || isLoadingPreferences || (modelMode === "chat" && !!activeChat?.assistantConfig?.model)}
               open={isModelMenuOpen}
               onOpenChange={setIsModelMenuOpen}
               // "添加模型…" opens the model settings instead of becoming the selection.
