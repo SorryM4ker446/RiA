@@ -42,6 +42,11 @@ $applicationIds = @(Read-MsiTable 'MsiShortcutProperty' | Where-Object {
 if ($applicationIds.Count -ne 1) {
     throw 'Compiled MSI Start menu shortcut application identity is incorrect'
 }
+# Shortcut columns include the tooltip in the Description field.
+$shortcuts = @(Read-MsiTable 'Shortcut' | Where-Object { $_[0] -in @('ApplicationStartMenuShortcut', 'MyDesktopShortcut') -and $_[6] -eq $package.description })
+if ($shortcuts.Count -ne 2) {
+    throw 'Compiled MSI shortcut descriptions do not match the product description'
+}
 # Registry roots: 1 = HKEY_CURRENT_USER, 2 = HKEY_LOCAL_MACHINE.
 $perUserSearch = @(Read-MsiTable 'RegLocator' | Where-Object { $_[0] -eq 'PerUserRiaMarker' -and $_[1] -eq '1' -and $_[2] -eq 'Software\Microsoft\RiA' -and $_[3] -eq 'installed' })
 $refusal = @(Read-MsiTable 'LaunchCondition' | Where-Object { $_[0] -eq 'Installed OR WIX_UPGRADE_DETECTED OR NOT PERUSERRIA' })
