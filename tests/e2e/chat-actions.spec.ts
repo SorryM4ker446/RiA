@@ -204,7 +204,7 @@ for (const width of [1440, 390]) {
 }
 
 for (const { theme, cpuRate } of [{ theme: "dark", cpuRate: 1 }, { theme: "light", cpuRate: 1 }, { theme: "dark", cpuRate: 6 }] as const) {
-test(`compact terminal approval expands above the permission toolbar in ${theme} theme${cpuRate > 1 ? " with CPU throttling" : ""}`, async ({ page }, testInfo) => {
+test(`compact terminal approval expands directly above the composer in ${theme} theme${cpuRate > 1 ? " with CPU throttling" : ""}`, async ({ page }, testInfo) => {
   if (cpuRate > 1) {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
@@ -229,13 +229,15 @@ test(`compact terminal approval expands above the permission toolbar in ${theme}
   await expect(code).toBeVisible();
   await expect(code).toHaveText(command);
   const permissions = (await page.getByRole("button", { name: /选择工作区|工作区：/ }).first().boundingBox())!;
+  const composer = (await page.locator(".composer-surface").boundingBox())!;
   const initial = (await card.boundingBox())!;
-  expect(initial.y + initial.height).toBeLessThanOrEqual(permissions.y);
+  expect(permissions.y + permissions.height).toBeLessThanOrEqual(initial.y);
+  expect(initial.y + initial.height).toBeLessThanOrEqual(composer.y);
   await card.getByRole("button", { name: "收起详情", exact: true }).click();
   await expect(card.locator(".approval-details")).toHaveCSS("visibility", "hidden");
   const collapsed = (await card.boundingBox())!;
   expect(collapsed.height).toBeLessThanOrEqual(100);
-  expect(collapsed.y + collapsed.height).toBeLessThanOrEqual(permissions.y);
+  expect(collapsed.y + collapsed.height).toBeLessThanOrEqual(composer.y);
   await expect(card.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   await expect(page.getByRole("dialog", { name: "执行记录", exact: true })).toBeHidden();
   await page.screenshot({ path: testInfo.outputPath(`approval-compact-${theme}-desktop.png`) });
@@ -685,6 +687,18 @@ for (const width of [1440, 390]) {
     await page.keyboard.press("Enter");
     await expect(bubble.locator("textarea")).toHaveValue("Original question");
     await bubble.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(bubble.locator("textarea")).toHaveCount(0);
+    // Re-open and verify Escape and clicking empty space outside both cancel editing.
+    await bubble.hover();
+    await bubble.getByRole("button", { name: "编辑消息", exact: true }).click();
+    await expect(bubble.locator("textarea")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(bubble.locator("textarea")).toHaveCount(0);
+    await bubble.hover();
+    await bubble.getByRole("button", { name: "编辑消息", exact: true }).click();
+    await expect(bubble.locator("textarea")).toBeVisible();
+    const listBox = (await page.getByTestId("message-list").boundingBox())!;
+    await page.mouse.click(listBox.x + 12, listBox.y + 12);
     await expect(bubble.locator("textarea")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });

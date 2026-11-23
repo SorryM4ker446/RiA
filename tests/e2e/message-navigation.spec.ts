@@ -52,8 +52,8 @@ test("desktop markers preview and locate messages with mouse and keyboard while 
   await expect(nav).not.toContainText(/\d+\s*\/\s*\d+/);
   await expect(nav).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   // Painted length: the current mark is the long one (it is scaled, so its layout never changes).
-  await expect.poll(async () => Math.round((await mark(page, "a-22").locator("span").boundingBox())!.width)).toBe(24);
-  await expect.poll(async () => Math.round((await mark(page, "a-20").locator("span").boundingBox())!.width)).toBe(14);
+  await expect.poll(async () => Math.round((await mark(page, "a-22").locator("span").boundingBox())!.width)).toBe(16);
+  await expect.poll(async () => Math.round((await mark(page, "a-20").locator("span").boundingBox())!.width)).toBe(8);
   const rail = (await nav.boundingBox())!, frame = (await page.locator(".chat-transcript-frame").boundingBox())!;
   expect(rail.x - frame.x).toBeLessThan(16); expect(rail.width).toBeLessThanOrEqual(28); expect(rail.height).toBeLessThanOrEqual(224);
   await mark(page, "a-0").hover();

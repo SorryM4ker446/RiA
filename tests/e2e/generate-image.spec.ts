@@ -191,10 +191,16 @@ test("a picture in the conversation opens with one click or its button, Esc retu
   const figure = answer(page).getByTestId("generated-picture");
   const image = figure.getByRole("img", { name: "生成的图片", exact: true });
   const openViewer = figure.getByRole("button", { name: "查看大图", exact: true });
+  const copyImage = figure.getByRole("button", { name: "复制图片", exact: true });
   const src = (await image.getAttribute("src"))!;
+  await figure.hover();
   await expect(openViewer).toBeVisible();
+  await expect(copyImage).toBeVisible();
   const [imageBox, buttonBox] = await Promise.all([image.boundingBox(), openViewer.boundingBox()]);
-  expect(buttonBox!.x + buttonBox!.width).toBeCloseTo(imageBox!.x + imageBox!.width, 0);
+  expect(buttonBox!.x).toBeGreaterThanOrEqual(imageBox!.x);
+  expect(buttonBox!.y).toBeGreaterThanOrEqual(imageBox!.y);
+  expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(imageBox!.x + imageBox!.width);
+  expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(imageBox!.y + imageBox!.height);
   const scroller = page.getByTestId("message-list");
   const scrolled = await scroller.evaluate(node => node.scrollTop);
   await expect(figure.getByRole("button", { name: "继续编辑", exact: true })).toHaveCount(0);
@@ -237,10 +243,11 @@ test("adding a picture to the next question grows the message box smoothly: the 
   await page.getByRole("option", { name: "文生图模式", exact: true }).click();
   const input = page.getByPlaceholder(/描述你想生成的图片/);
   const attachments = page.getByRole("list", { name: "已添加的附件" });
-  // Its name changes while it works ("加入中..."), so use its place next to the viewer action.
+  // Its name changes while it works ("加入中..."), so use its place inside the corner toolbar.
+  await figure.hover();
   const actions = figure.locator(".chat-picture-actions").getByRole("button");
-  const reuse = actions.nth(1);
-  await expect(reuse).toHaveText("继续编辑");
+  const reuse = actions.nth(2);
+  await expect(reuse).toHaveAttribute("aria-label", "继续编辑");
   const [viewSize, reuseSize] = await Promise.all([actions.first().boundingBox(), reuse.boundingBox()]);
   expect(reuseSize?.height).toBe(viewSize?.height);
   expect(reuseSize?.width).toBe(viewSize?.width);
@@ -277,7 +284,7 @@ test("adding a picture to the next question grows the message box smoothly: the 
     const before = await layout();
     await watchStop();
     await reuse.click();
-    await expect(reuse).toHaveText("加入中...");
+    await expect(reuse).toHaveAttribute("aria-label", "加入中...");
     await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
     const whileReading = await layout();
     expect(whileReading.bottom).toBe(before.bottom);

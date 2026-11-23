@@ -59,16 +59,21 @@ test("what was asked and what was answered each show their time on hover, left o
     expect(look).toMatchObject({ radius: "6px", blur: "none", size: "12px", background: look.themeBackground, color: look.themeColor });
     await question.hover({ position: { x: 4, y: 4 } });
     await expect(tip).toHaveCount(0);
+    await expectLeftOf(asked, question.getByRole("button", { name: "复制这条消息" }));
     await expectLeftOf(asked, question.getByRole("button", { name: "编辑消息" }));
+    // Latest completed reply shows its bottom action bar at low contrast at rest, brightening on hover.
+    await expect.poll(() => opacity(answered)).toBeCloseTo(0.6, 1);
     await answer.hover();
     await expect.poll(() => opacity(answered)).toBe(1);
     await expect(answered).toHaveText(clockToday);
-    await expectLeftOf(answered, answer.getByRole("button", { name: "重新生成" }));
-    // Reads along one line with the role label across the header: same type, same centre.
+    const deleteBtn = answer.getByRole("button", { name: "删除消息" });
+    const [delBox, timeBox] = await Promise.all([deleteBtn.boundingBox(), answered.boundingBox()]);
+    expect(delBox!.x + delBox!.width).toBeLessThanOrEqual(timeBox!.x);
+    expect(Math.abs((delBox!.y + delBox!.height / 2) - (timeBox!.y + timeBox!.height / 2))).toBeLessThan(1);
     const label = answer.locator("header .label-mono").first();
     await expect(label).toHaveText(/RiA/i);
-    const [labelBox, timeBox] = await Promise.all([label.boundingBox(), answered.boundingBox()]);
-    expect(Math.abs((labelBox!.y + labelBox!.height / 2) - (timeBox!.y + timeBox!.height / 2))).toBeLessThan(1);
+    const labelBox = (await label.boundingBox())!;
+    expect(timeBox!.y).toBeGreaterThan(labelBox.y + labelBox.height);
     expect(await answered.evaluate(node => getComputedStyle(node).fontSize)).toBe(await label.evaluate(node => getComputedStyle(node).fontSize));
     return { asked: await asked.getAttribute("datetime"), answered: await answered.getAttribute("datetime") };
   };
