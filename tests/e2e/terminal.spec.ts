@@ -132,7 +132,9 @@ test("desktop folder permission, exact command approval and persisted output sur
   await page.reload();
   await expect(page.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   expect(existsSync(join(app.folder, "terminal-proof.txt"))).toBe(false);
+  const decision = page.waitForRequest(request => new URL(request.url()).pathname === "/api/chat" && request.method() === "POST");
   await page.getByRole("button", { name: "批准", exact: true }).click();
+  const approvedRequest = (await decision).postDataJSON();
   await openExecutionDetails(page);
   await expect(page.locator(".run-record-trigger")).toHaveCount(1);
   await expect(page.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
@@ -144,6 +146,9 @@ test("desktop folder permission, exact command approval and persisted output sur
   await expect.poll(async () => (await browserData(page, `/api/conversations/${chat.id}/messages`)).some(message => message.content.includes('"state":"output-available"'))).toBe(true);
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");
   await app.restart(); await page.reload();
+  const callsAfterRestart = app.providerCalls.length;
+  expect((await browserApi(page, "/api/chat", "POST", approvedRequest)).status).toBe(409);
+  expect(app.providerCalls).toHaveLength(callsAfterRestart);
   await openExecutionDetails(page);
   await expect(page.getByLabel("终端输出", { exact: true })).toContainText("terminal-ready-你好");
   expect(readFileSync(join(app.folder, "terminal-proof.txt"), "utf8")).toBe("once");

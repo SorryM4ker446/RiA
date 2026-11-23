@@ -17,6 +17,7 @@ import { MODEL_RETRIES, QUICK_RETRIES, retryDelay, waitForRetry } from "./model-
 import { continueTruncated } from "./continuation";
 import { needsCacheBreakpoints, withCacheBreakpoints } from "./prompt-cache";
 import { projectReasoning, reasoningOrigin, tagReasoningPart } from "./reasoning-replay";
+import { projectTerminalInputs, sanitizeTerminalToolCall } from "@/lib/terminal/model-input";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v3" }>;
 type Embed = Extract<EmbeddingModel, { specificationVersion: "v3" }>;
@@ -192,7 +193,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
         try {
           if (!sameRef(selected, current)) base = await switchTo(selected, params);
-          const projected = { ...base, prompt: projectReasoning(base.prompt, selected, true) };
+          const projected = { ...base, prompt: projectTerminalInputs(projectReasoning(base.prompt, selected, true)) };
           const selectedParams = await withReasoning(selected, { ...projected, maxOutputTokens: await plannedCap(selected, projected),
             ...(options?.readsCachedPrefix && needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(projected.prompt) } : {}) });
           const result = await withModelLease("chat", selected, async () => {
@@ -205,7 +206,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
           });
           if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, usage: result.usage, metadata: result.providerMetadata, fallback: isFallback, rate: admission.rate });
           noteAnswered(selected);
-          return result;
+          return { ...result, content: result.content.map(part => part.type === "tool-call" ? sanitizeTerminalToolCall(part) : part) };
         } catch (error) {
           if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, error, fallback: isFallback });
           // The fallback, when there is one left to try, takes over quickly; the last model is waited for.
@@ -254,7 +255,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
           }
           const lease = await acquireModelLease("chat", selected);
           releaseLease = lease.release;
-          const projected = { ...base, prompt: projectReasoning(base.prompt, selected, true) };
+          const projected = { ...base, prompt: projectTerminalInputs(projectReasoning(base.prompt, selected, true)) };
           const selectedParams = await withReasoning(selected, { ...projected, maxOutputTokens: await plannedCap(selected, projected),
             // Chat steps repeat their prefix across turns and tool steps, so a
             // cache write is read back; one-off generated calls are not marked.
@@ -300,7 +301,8 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
               }
               if (part.type === "reasoning-end" || part.type === "tool-call") capturedDetails = snapshot;
             }
-            controller.enqueue(tagReasoningPart(distinguish(part), origin));
+            const distinct = distinguish(part);
+            controller.enqueue(tagReasoningPart(distinct.type === "tool-call" ? sanitizeTerminalToolCall(distinct) : distinct, origin));
           };
           const observed = new ReadableStream<Part>({
             start(controller) { for (const part of buffered) emit(controller, part); },

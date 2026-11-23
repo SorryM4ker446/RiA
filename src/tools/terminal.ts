@@ -20,8 +20,8 @@ export const terminalTool: ToolDescriptor<TerminalInput, TerminalCommandResult> 
   ...approvalGate("command"),
   inputSchema: terminalInputSchema,
   modelInputSchema: jsonSchema<TerminalInput>(() => zodSchema(modelInput).jsonSchema, { validate: async value => {
-    // The SDK also validates a resumed approval here, including its server
-    // binding. Preserve that binding while checking the current permission.
+    // The model boundary strips approval state from new calls. The SDK also
+    // validates a resumed approval here, with its original server binding.
     const parsed = terminalInputSchema.safeParse(value);
     // Bind before the SDK emits input-available, so the preview and saved
     // approval contain the same directory, permission revision and session ID.

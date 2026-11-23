@@ -220,6 +220,11 @@ failure-count or aggregate duration cap (see [Execution history](execution-histo
 for retries). There is no cap on how many commands run at once, background ones
 included.
 
+Each new command gets its own terminal session, including commands issued after
+stopping an answer and continuing the task. Terminal call arguments replayed to
+the model omit their saved approval binding. When the user approves a pending
+command, RiA executes it once using the original binding.
+
 ### Background commands
 
 A command started with `runInBackground` returns as soon as it is under way,
