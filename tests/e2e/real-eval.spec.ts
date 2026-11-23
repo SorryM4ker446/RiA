@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import type { Page } from "@playwright/test";
@@ -25,8 +25,9 @@ const OUT = resolve(process.env.RIA_EVAL_OUT ?? ".desktop-data/eval/latest.jsonl
 mkdirSync(dirname(OUT), { recursive: true });
 
 type Step = { toolName: string | null; state: string; input?: unknown };
-type Run = { steps: Step[] };
-type Outcome = { scenario: string; run: number; pass: boolean; checks: Record<string, boolean | number | string>; tools: string[]; answer: string; costUsd: number; requests: number };
+type Run = { status: string; steps: Step[] };
+type Outcome = { scenario: string; run: number; pass: boolean; checks: Record<string, boolean | number | string>; tools: string[]; answer: string;
+  costUsd: number; requests: number; unknownCostRequests: number; elapsedMs: number; inputTokens: number; outputTokens: number };
 
 function record(outcome: Outcome) {
   appendFileSync(OUT, JSON.stringify({ ...outcome, answer: outcome.answer.slice(0, 400), at: new Date().toISOString() }) + "\n");
@@ -64,11 +65,15 @@ async function turn(page: Page, real: RealModel, chatId: string) {
   return { answer, steps, tools: [...steps.map(step => step.toolName!), ...pending] };
 }
 
-async function measured(page: Page, real: RealModel, work: () => Promise<Omit<Outcome, "costUsd" | "requests">>) {
+async function measured(page: Page, real: RealModel, work: () => Promise<Omit<Outcome, "costUsd" | "requests" | "unknownCostRequests" | "elapsedMs" | "inputTokens" | "outputTokens">>) {
   const before = await real.usage(page);
+  const start = performance.now();
   const outcome = await work();
+  const elapsedMs = Math.round(performance.now() - start);
   const after = await real.usage(page);
-  record({ ...outcome, costUsd: after.costUsd - before.costUsd, requests: after.requests - before.requests });
+  record({ ...outcome, elapsedMs, costUsd: after.costUsd - before.costUsd, requests: after.requests - before.requests,
+    unknownCostRequests: after.unknownCostRequests - before.unknownCostRequests,
+    inputTokens: after.inputTokens - before.inputTokens, outputTokens: after.outputTokens - before.outputTokens });
   return outcome;
 }
 
@@ -225,6 +230,153 @@ test("summary coverage: a multi-step repair keeps a requirement from older saved
   expect(checks).toEqual({
     organizing: true, summaryKeptLabel: true, coverageIncludesConstraint: true, ranBeforeAndAfter: true, testsPass: true, testsUnchanged: true, reportExportsLabel: true,
   });
+});
+
+test("workflow: reconcile non-code sources and write a cited handoff @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    const outcome = await measured(page, real, async () => {
+      const { chatId, folder, cleanup } = await workspace(page, real, `Event handoff ${run}`);
+      try {
+        writeFileSync(join(folder, "AGENTS.md"), "Start operations handoff documents with the Markdown heading `# Field operations handoff`. Cite the source filename beside each decision.\n");
+        writeFileSync(join(folder, "event-permit.md"), "Permit reference: PARK-N74\nFinal access: south gate only.\nNorth gate allocation NORTH-R31 was withdrawn.\n");
+        writeFileSync(join(folder, "supplier-budget.csv"), "Item,Amount\nVenue support,USD 1210.40\nAccess shuttle,USD 625.00\nApproved total,USD 1835.40\nSuperseded estimate,USD 2410.00\n");
+        writeFileSync(join(folder, "review-register.txt"), "ACCESS-A19: provisional review.\nACCESS-R63: final accessible-route review blocked north gate and confirmed south gate only.\n");
+        await ask(page, real, chatId, "Reconcile event-permit.md, supplier-budget.csv and review-register.txt for the volunteers. Create handoff.md with the current permit reference, approved amount as USD with two decimals, the latest review ID, and the approved gate. Give the filename beside each decision so it can be verified. Leave the source files alone.");
+        const { answer, steps, tools } = await turn(page, real, chatId);
+        const output = join(folder, "handoff.md");
+        const text = existsSync(output) ? readFileSync(output, "utf8") : "";
+        const cited = (value: string, ...sources: string[]) => text.split("\n").some(line => line.includes(value) && sources.some(source => line.includes(source)));
+        const checks = {
+          projectHeading: text.startsWith("# Field operations handoff\n"),
+          permitCited: cited("PARK-N74", "event-permit.md"), budgetCited: cited("USD 1835.40", "supplier-budget.csv"),
+          latestReviewCited: cited("ACCESS-R63", "review-register.txt"), gateCited: cited("south gate only", "event-permit.md", "review-register.txt"),
+          onlyFinalDecisions: !/NORTH-R31|2410\.00|ACCESS-A19/.test(text),
+          outputWrite: steps.filter(step => step.toolName === "editProjectFile" && step.state === "done" && (step.input as { path?: string })?.path === "handoff.md").length === 1,
+        };
+        return { scenario: "workflow-event-handoff", run, pass: Object.values(checks).every(Boolean), checks: { ...checks, userInterventions: 0 }, tools, answer };
+      } finally { cleanup(); }
+    });
+    expect.soft(outcome.pass, JSON.stringify(outcome.checks)).toBe(true);
+  }
+});
+
+test("workflow: recover original evidence after two compactions @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    const outcome = await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `Event evidence ${run}`);
+      const url = `${real.origin}/api/conversations/${chatId}`;
+      const readSummary = () => browserData(page, `${url}/summary`) as Promise<{ coveredIds: string[] }>;
+      const compact = async () => browserApi(page, `${real.origin}/api/tools/run`, "POST", { tool: "compactContext", input: {}, chatId });
+      const evidence = "Juniper Gate Log: ALERT PRINT-K61 at 18:20 — badge printer rejected unlabeled stock";
+      await ask(page, real, chatId, `Use this original incident log when preparing the eventual handoff. For now acknowledge it without restating the line.\n${evidence}`);
+      await ask(page, real, chatId, "The agreed provisional check-in desk location is lobby A. Acknowledge it briefly.");
+      const first = await compact();
+      const firstBoundary = await readSummary();
+      await ask(page, real, chatId, "Change the check-in desk location to Juniper 4B. Acknowledge the update briefly.");
+      await ask(page, real, chatId, "The original printer incident still needs to be cited in the final handoff. Acknowledge this briefly.");
+      const second = await compact();
+      const secondBoundary = await readSummary();
+      const before = await turn(page, real, chatId);
+      await ask(page, real, chatId, "Finish the handoff. Look up the original incident message in the conversation records and quote its exact log line. Then give the current check-in desk location. Do not reuse the provisional location.");
+      const { answer, steps, tools } = await turn(page, real, chatId);
+      const checks = {
+        firstCompacted: first.status === 200 && first.body.data?.status === "compacted" && firstBoundary.coveredIds.length > 0,
+        secondAdvanced: second.status === 200 && second.body.data?.status === "compacted" && secondBoundary.coveredIds.length > 0
+          && secondBoundary.coveredIds.every(id => !firstBoundary.coveredIds.includes(id)),
+        openedOriginalHistory: steps.filter(step => step.toolName === "readConversationHistory" && step.state === "done").length
+          > before.steps.filter(step => step.toolName === "readConversationHistory" && step.state === "done").length,
+        quotedExactly: answer.includes(evidence), latestLocation: answer.includes("Juniper 4B") && !answer.includes("lobby A"),
+      };
+      return { scenario: "workflow-recover-incident-evidence", run, pass: Object.values(checks).every(Boolean), checks: { ...checks, userInterventions: 2 }, tools, answer };
+    });
+    expect.soft(outcome.pass, JSON.stringify(outcome.checks)).toBe(true);
+  }
+});
+
+test("workflow: answer a general knowledge question without tools @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    const outcome = await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `Ordinary conversation ${run}`);
+      await ask(page, real, chatId, "用一句话解释什么是光合作用。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = { answered: answer.trim().length > 10, noTools: tools.length === 0 };
+      return { scenario: "workflow-ordinary-conversation", run, pass: Object.values(checks).every(Boolean), checks, tools, answer };
+    });
+    expect.soft(outcome.pass, JSON.stringify(outcome.checks)).toBe(true);
+  }
+});
+
+test("general assistant: rewrite a supplied notice for volunteers @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    const outcome = await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `Volunteer notice ${run}`);
+      await ask(page, real, chatId, "把下面的通知改成发给志愿者的一条简短群消息，语气自然友好，保留集合安排和不能参加时的反馈要求。原文：周五18:30在东门集合。去不了的请在周四17:00前告知。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = {
+        gathering: /(?:周|星期|礼拜)五/.test(answer) && /18\s*[:：]\s*30|(?:18|十八)\s*[点时](?:半|30|三十分)|(?:下午|晚上)\s*[6六]\s*点半/.test(answer) && answer.includes("东门"),
+        responseDeadline: /(?:周|星期|礼拜)四/.test(answer) && /17\s*[:：]\s*00|(?:17|十七)\s*[点时]|下午\s*[5五]\s*点/.test(answer) && /告知|告诉|通知|反馈|联系|报备|回复|确认|说/.test(answer),
+        noTools: tools.length === 0,
+      };
+      return { scenario: "general-assistant-writing", run, pass: Object.values(checks).every(Boolean), checks, tools, answer };
+    });
+    expect.soft(outcome.pass, JSON.stringify(outcome.checks)).toBe(true);
+  }
+});
+
+test("general assistant: reconcile two local research sources @real @eval", async ({ page, real }) => {
+  await importDocument(page, real, "青桥路线草案.md", "# 青桥流动书车秋季路线草案\n\n11月4日的方案草案暂定北线，11月20日开始试运行。\n");
+  await importDocument(page, real, "青桥路线签发版.md", "# 青桥流动书车秋季路线签发版\n\n11月10日负责人签发最终方案，替换原草案。批准南线，11月22日开始试运行。常态班次尚未公布。\n");
+  for (let run = 1; run <= REPEATS; run++) {
+    const outcome = await measured(page, real, async () => {
+      const chatId = await newChat(page, real, `Route research ${run}`);
+      await ask(page, real, chatId, "结合我导入的两份材料，青桥流动书车这次试运行以哪条路线和哪天为准？两份材料为什么不同？常态班次能否确认？请给出出处。");
+      const { answer, tools } = await turn(page, real, chatId);
+      const checks = {
+        searchedLocalSources: tools.includes("searchKnowledge"),
+        currentDecision: answer.includes("南线") && /11\s*月\s*22\s*[日号]|11\s*[-/.]\s*22|十一月二十二[日号]/.test(answer),
+        reconciled: /草案/.test(answer) && /签发|最终|替换|取代|为准/.test(answer),
+        uncertainty: /常态班次/.test(answer) && /未公布|未发布|未提供|无法确认|不能确认|尚未/.test(answer),
+        citedBoth: answer.includes("青桥路线草案") && answer.includes("青桥路线签发版") && /\]\([^)]+\)/.test(answer),
+        noWebSearch: !tools.includes("webSearch"),
+      };
+      return { scenario: "general-assistant-research", run, pass: Object.values(checks).every(Boolean), checks, tools, answer };
+    });
+    expect.soft(outcome.pass, JSON.stringify(outcome.checks)).toBe(true);
+  }
+});
+
+test("workflow: resume after stopping a verification without repeating a write @real @eval", async ({ page, real }) => {
+  for (let run = 1; run <= REPEATS; run++) {
+    const outcome = await measured(page, real, async () => {
+      const { chatId, folder, cleanup } = await workspace(page, real, `Resume event registration ${run}`);
+      try {
+        copyFileSync(resolve("tests/fixtures/event-registration.cjs"), join(folder, "registration.cjs"));
+        const opening = page.waitForResponse(response => response.url() === `${real.origin}/api/chat` && response.request().method() === "POST");
+        const initial = ask(page, real, chatId, "Register the event by running `node registration.cjs apply` once. After that finishes, run `node registration.cjs verify` as a separate command and report what verified.");
+        const runId = (await opening).headers()["x-chat-run-id"];
+        const ledger = join(folder, "ledger.txt"), receipt = join(folder, "receipt.txt");
+        await expect.poll(() => existsSync(join(folder, "verification-started.txt")), { timeout: 90_000 }).toBe(true);
+        const stop = await browserApi(page, `${real.origin}/api/chat/${chatId}/stream?runId=${encodeURIComponent(runId)}`, "DELETE");
+        await initial;
+        const url = `${real.origin}/api/conversations/${chatId}/runs`;
+        const interrupted = (await browserData(page, url) as Run[])[0];
+        const command = (step: Step) => step.toolName === "runTerminalCommand" ? (step.input as { command?: string })?.command ?? "" : "";
+        const appliedBefore = interrupted.steps.some(step => command(step).includes("registration.cjs apply") && step.state === "done");
+        const cancelledBefore = stop.status === 200 && stop.body.data.stopped && interrupted.status === "cancelled" && !existsSync(receipt);
+        await ask(page, real, chatId, "Continue the same task. Check the existing execution and file evidence. Finish any verification that remains and report what is confirmed. Don't repeat a registration that already succeeded.");
+        const { answer, tools, steps } = await turn(page, real, chatId);
+        const checks = {
+          appliedBefore, cancelledBefore: Boolean(cancelledBefore),
+          oneApplyCall: steps.filter(step => command(step).includes("registration.cjs apply")).length === 1,
+          ledgerOnce: existsSync(ledger) && readFileSync(ledger, "utf8") === "REG-63\n",
+          verificationFinished: existsSync(receipt) && readFileSync(receipt, "utf8") === "VERIFIED REG-63\n",
+          reportedVerification: answer.includes("REG-63") && /verif(?:ied|ication)|核验|验证|确认/i.test(answer),
+        };
+        return { scenario: "workflow-resume-registration", run, pass: Object.values(checks).every(Boolean), checks: { ...checks, userInterventions: 2 }, tools, answer };
+      } finally { cleanup(); }
+    });
+    expect.soft(outcome.pass, JSON.stringify(outcome.checks)).toBe(true);
+  }
 });
 
 test("failures: asked for a file that is not there, the model says so instead of repeating the call @real @eval", async ({ page, real }) => {

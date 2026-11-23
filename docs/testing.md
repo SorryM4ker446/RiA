@@ -93,6 +93,16 @@ Each scenario starts its own service with a temporary database, the key in that 
 npm run test:real -- --provider openrouter --model deepseek/deepseek-v4.1-flash --max-usd 0.20 tests/e2e/real-eval.spec.ts
 ```
 
+The `workflow:` scenarios score a handoff written from local documents, exact
+conversation evidence recovered after two explicit compactions, and verification
+resumed after stopping a turn with a completed write. The JSON lines include
+elapsed time, provider token counts, known costs, unknown-cost attempts and the
+number of scripted user interventions. These scenarios use isolated fixtures.
+
+```bash
+npm run test:real -- --provider openrouter --model google/gemini-3.1-flash-lite --max-usd 0.15 tests/e2e/real-eval.spec.ts --grep "workflow:"
+```
+
 The picture scenarios need an image model of the same provider, added to the library and made the default with `--image-model`. The `pictures:` scenario checks drawing, editing by media ID and answering a how-to question without a generation. The `picture inspection` scenarios check the reply with and without visual input. Both use the same real chat model. The latter disables image input in its temporary model library. The usage report includes an OpenRouter image charge when the provider supplies it. The spending threshold uses known costs after each test, so check provider billing when a call has unknown cost.
 
 ```bash
