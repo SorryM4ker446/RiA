@@ -109,7 +109,7 @@ function CodeBlock({ children, writing, hljs }: { children: React.ReactNode; wri
           title={state === "refused" ? t("chat.copyCodeRefused") : undefined}
           type="button"
         >
-          {state === "copied" ? <Check aria-hidden="true" className="text-success" /> : state === "refused" ? <AlertCircle aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          {state === "copied" ? <Check aria-hidden="true" className="copy-confirm-icon text-success" /> : state === "refused" ? <AlertCircle aria-hidden="true" /> : <Copy aria-hidden="true" />}
           <span>{state === "copied" ? t("chat.code.copied") : t("chat.code.copy")}</span>
         </button>
       </div>

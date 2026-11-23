@@ -286,6 +286,7 @@ export const enUS = {
   "chat.run.stop": "Stop subsequent steps",
   "chat.run.budget": "Limit",
   "chat.messages.copyAnswer": "Copy this answer",
+  "chat.messages.copyMessage": "Copy this message",
   "chat.messages.copyAnswerRefused": "Copy failed. Check system clipboard permissions.",
   "chat.contextMenu.label": "Context menu",
   "chat.contextMenu.messageBody": "Message body",

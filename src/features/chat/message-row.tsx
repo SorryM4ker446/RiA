@@ -19,6 +19,7 @@ import { toolLabel } from "./use-tools";
 import { MessageChoices } from "./composer-choices";
 import { readMessageInvocation } from "@/lib/chat/invocation-schema";
 import { isDocumentAttachment } from "@/lib/media/limits";
+import { assetIdFromUrl } from "@/lib/media/message-codec";
 import { answerPieces, generatedPictures } from "./generated-pictures";
 import { ChatPicture } from "./answer-picture";
 import { ImageViewer, type ViewedImage } from "@/components/media/image-viewer";
@@ -27,9 +28,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { getFileParts, getMessageRoleLabel, isToolPart, readText } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
-import { AlertCircle, Check, Copy, ImagePlus, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
+import { AlertCircle, Check, Copy, ImagePlus, PencilLine, RefreshCw, Trash2 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
-import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import type { ChatState } from "@/features/chat/use-chat-state";
 import type { UIMessage } from "ai";
 import { removalKey } from "@/lib/ui/removal";
@@ -44,33 +45,72 @@ import { SettingsLink } from "@/features/settings/settings-context";
 
 /**
  * A long answer from earlier in the conversation shows its opening and folds
- * the rest away, so scrolling back passes it quickly; one click shows it all.
- * Whether it may fold is decided once, when it first appears: the answer being
- * read when a new question is sent never folds up under the reader.
+ * the rest away, so scrolling back passes it quickly; one click unfolds it
+ * smoothly. Whether it may fold is decided once, when it first appears: the
+ * answer being read when a new question is sent never folds up under the reader.
  */
-function CollapsibleAnswer({ collapsible, children }: { collapsible: boolean; children: React.ReactNode }) {
+function useAnswerFold(collapsible: boolean, bodyRef: RefObject<HTMLDivElement | null>) {
   const [foldable] = useState(collapsible);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
-  const body = useRef<HTMLDivElement>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
   useLayoutEffect(() => {
-    const node = body.current;
+    const node = bodyRef.current;
     if (!foldable || !node) return;
-    const measure = () => setOverflows(node.scrollHeight > node.clientHeight + 1 || (expanded && node.scrollHeight > ANSWER_FOLD_PX));
+    const measure = () => {
+      if (node.dataset.animating) return;
+      setOverflows(node.scrollHeight > node.clientHeight + 1 || (expanded && node.scrollHeight > ANSWER_FOLD_PX));
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [foldable, expanded]);
-  if (!foldable) return <>{children}</>;
-  return <div className="answer-fold" data-folded={!expanded || undefined} data-overflows={overflows || undefined}>
-    <div ref={body} className="answer-fold-body">{children}</div>
-    {overflows ? (
-      <button type="button" className="answer-fold-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
-        {t(expanded ? "chat.messages.collapseAnswer" : "chat.messages.expandAnswer")}
-      </button>
-    ) : null}
-  </div>;
+  }, [foldable, expanded, bodyRef]);
+
+  useEffect(() => () => { cleanupRef.current?.(); }, []);
+
+  const toggle = useCallback(() => {
+    const node = bodyRef.current;
+    if (!foldable || !node || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      cleanupRef.current?.();
+      setExpanded(value => !value);
+      return;
+    }
+    const startHeight = node.getBoundingClientRect().height;
+    cleanupRef.current?.();
+    const nextExpanded = !expanded;
+    let timer: number | null = null;
+    let frame: number | null = null;
+    const onEnd = (event: TransitionEvent) => {
+      if (event.target === node && event.propertyName === "height") finish();
+    };
+    const finish = () => {
+      node.removeEventListener("transitionend", onEnd);
+      if (timer !== null) { window.clearTimeout(timer); timer = null; }
+      if (frame !== null) { window.cancelAnimationFrame(frame); frame = null; }
+      if (cleanupRef.current === finish) cleanupRef.current = null;
+      delete node.dataset.animating;
+      node.style.height = "";
+    };
+    cleanupRef.current = finish;
+    node.dataset.animating = "true";
+    node.style.height = `${Math.round(startHeight)}px`;
+    setExpanded(nextExpanded);
+    frame = window.requestAnimationFrame(() => {
+      frame = null;
+      const targetHeight = Math.round(nextExpanded ? node.scrollHeight : Math.min(node.scrollHeight, ANSWER_FOLD_PX));
+      if (Math.round(startHeight) === targetHeight) {
+        finish();
+        return;
+      }
+      node.addEventListener("transitionend", onEnd);
+      node.style.height = `${targetHeight}px`;
+      timer = window.setTimeout(finish, 360);
+    });
+  }, [foldable, expanded, bodyRef]);
+
+  return { foldable, expanded, overflows: foldable && overflows, toggle };
 }
 const ANSWER_FOLD_PX = 448;
 
@@ -149,6 +189,7 @@ type MessageRowProps = {
   videoUrl: string | undefined;
   attachingImageKey: ChatState["attachingImageKey"];
   reuseImageActionLabel: string | null;
+  canAttachImage: boolean;
   tools: ChatState["tools"];
   alwaysReasons: boolean;
   /** What the turn says while it waits or retries; only for the last row. */
@@ -171,7 +212,7 @@ type MessageRowProps = {
  */
 export const MessageRow = memo(function MessageRow({
   message, previousMetadata, isLast, arriving = false, status, isPending, isEditing, editingText, resendsEdited, copyState, imageUrl, videoUrl,
-  attachingImageKey, reuseImageActionLabel, tools, alwaysReasons, notice = null, canShowSources, compactionSummary, actions, memoryNote, chatId,
+  attachingImageKey, reuseImageActionLabel, canAttachImage, tools, alwaysReasons, notice = null, canShowSources, compactionSummary, actions, memoryNote, chatId,
 }: MessageRowProps) {
   useLocale();
   const toolName = (id: string) => {
@@ -207,12 +248,69 @@ export const MessageRow = memo(function MessageRow({
   const hasCopyBody = !isEditing && Boolean(text || imageUrl || pieces || savedPictures.length || fileParts.some(file => file.mediaType.startsWith("image/")));
   const [viewing, setViewing] = useState<{ image: ViewedImage; returnTo: () => HTMLElement | null } | null>(null);
   const openPicture = (image: ViewedImage, returnTo: () => HTMLElement | null) => setViewing({ image, returnTo });
-  const reuseButton = (imageUrl: string, key: string, filenameBase: string) => reuseImageActionLabel ? (
-    <Button disabled={Boolean(attachingImageKey)} onClick={() => void actions.current?.onReuseImageForEditing({ imageUrl, key, filenameBase })} size="sm" type="button" variant="secondary">
-      {attachingImageKey === key ? <Spinner aria-hidden="true" /> : <ImagePlus data-icon="inline-start" aria-hidden="true" />}
-      {attachingImageKey === key ? t("chat.messages.reusing") : reuseImageActionLabel}
-    </Button>
-  ) : null;
+  const articleRef = useRef<HTMLElement>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const foldBodyRef = useRef<HTMLDivElement>(null);
+  const fold = useAnswerFold(!isUser && !isLast, foldBodyRef);
+
+  // Clicking empty space outside an active inline edit cancels it cleanly.
+  useEffect(() => {
+    if (!isEditing) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (articleRef.current?.contains(target)) return;
+      if (target.closest('[role="dialog"], [role="alertdialog"], [role="menu"], [data-radix-popper-content-wrapper], .toast-stack, .message-actions')) return;
+      actions.current?.cancelEditingMessage();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [isEditing, actions]);
+
+  // Place caret at the end when entering edit mode and auto-fit the textarea height to its content.
+  useLayoutEffect(() => {
+    const input = editTextareaRef.current;
+    if (!isEditing || !input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(256, Math.max(68, input.scrollHeight))}px`;
+  }, [isEditing, editingText]);
+  useEffect(() => {
+    const input = editTextareaRef.current;
+    if (!isEditing || !input) return;
+    input.focus({ preventScroll: true });
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+  }, [isEditing]);
+
+  const onEditKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      actions.current?.cancelEditingMessage();
+    } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && editingText.trim()) {
+      event.preventDefault();
+      void actions.current?.saveEditedMessage(message);
+    }
+  };
+  const reuseButton = (imageUrl: string, key: string, filenameBase: string) => {
+    const label = reuseImageActionLabel ?? (canAttachImage && assetIdFromUrl(imageUrl) ? t("chat.contextMenu.attachImage") : null);
+    if (!label) return null;
+    const activeLabel = attachingImageKey === key ? t("chat.messages.reusing") : label;
+    return (
+      <Button
+        className="chat-picture-action"
+        disabled={Boolean(attachingImageKey)}
+        onClick={() => void actions.current?.onReuseImageForEditing({ imageUrl, key, filenameBase })}
+        size="icon-sm"
+        type="button"
+        variant="ghost"
+        aria-label={activeLabel}
+        title={activeLabel}
+      >
+        {attachingImageKey === key ? <Spinner aria-hidden="true" /> : <ImagePlus aria-hidden="true" />}
+      </Button>
+    );
+  };
 
   // RiA's own notice that background sub-agents ended: a line between the turns, not the user's message.
   const ownNotice = isUser ? readMessageNotice(message.metadata) : null;
@@ -221,24 +319,19 @@ export const MessageRow = memo(function MessageRow({
   return (
     <><div className={cn("flex w-full", isUser ? "justify-end pb-4" : "justify-start")} {...removalKey(message.id)} data-message-id={message.id} data-message-role={message.role} data-arriving={arriving || undefined}>
       <article
+        ref={articleRef}
         className={cn(
-          "group min-w-0 rounded-xl px-4 py-3 text-sm",
-          isUser ? "chat-user-bubble relative max-w-[92%] md:max-w-[80%]" : "w-full bg-transparent text-card-foreground",
+          "group min-w-0 text-sm",
+          isUser
+            ? isEditing
+              ? "chat-user-editor relative w-full max-w-[36rem]"
+              : "chat-user-bubble relative max-w-[92%] rounded-xl px-4 py-3 md:max-w-[80%]"
+            : "w-full rounded-xl bg-transparent px-4 py-3 text-card-foreground",
         )}
       >
-        <header className={isUser ? "chat-user-actions absolute right-0 top-full pt-1" : "mb-2 flex items-center justify-between gap-2"}>
-          {!isUser && <div className="flex min-w-0 items-center gap-2">
-            <span className="label-mono">
-              {getMessageRoleLabel(message.role)}
-            </span>
-          </div>}
-          <div className="flex shrink-0 items-center gap-1">
-            {isLastAssistantStreaming ? (
-              <span className="label-mono inline-flex items-center">
-                <Spinner aria-hidden="true" className="mr-1 h-3 w-3" />
-                {t("chat.toolbar.statusGenerating")}
-              </span>
-            ) : null}
+        {isUser ? (
+          isEditing ? null : (
+          <header className="chat-user-actions absolute right-0 top-full pt-1">
             <div className="message-actions flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
               {savedAt ? (
                 <time
@@ -248,9 +341,28 @@ export const MessageRow = memo(function MessageRow({
                   {formatMessageTime(savedAt)}
                 </time>
               ) : null}
+              {text ? (
+                <Button
+                  aria-label={copyState === "refused" ? t("chat.messages.copyAnswerRefused") : t("chat.messages.copyMessage")}
+                  onClick={() => void actions.current?.copyAnswer({ id: message.id, text })}
+                  size="icon"
+                  title={copyState === "refused" ? t("chat.messages.copyAnswerRefused") : copyState === "copied" ? t("chat.code.copied") : t("chat.messages.copyMessage")}
+                  type="button"
+                  variant="ghost"
+                >
+                  {copyState === "copied" ? (
+                    <Check aria-hidden="true" className="copy-confirm-icon h-3.5 w-3.5 text-success" />
+                  ) : copyState === "refused" ? (
+                    <AlertCircle aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />
+                  ) : (
+                    <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              ) : null}
               {isEditable ? (
                 <Button
                   aria-label={t("chat.messages.edit")}
+                  title={t("chat.messages.edit")}
                   onClick={() => actions.current?.startEditingMessage(message)}
                   size="icon"
                   type="button"
@@ -259,37 +371,9 @@ export const MessageRow = memo(function MessageRow({
                   <PencilLine aria-hidden="true" className="h-3.5 w-3.5" />
                 </Button>
               ) : null}
-              {isRegenerable && !isPending ? (
-                <Button
-                  aria-label={t("chat.messages.regenerate")}
-                  onClick={() => void actions.current?.regenerateMessage(message.id)}
-                  size="icon"
-                  type="button"
-                  variant="ghost"
-                >
-                  <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-                </Button>
-              ) : null}
-              {!isUser && text ? (
-                <Button
-                  aria-label={copyState === "refused" ? t("chat.messages.copyAnswerRefused") : t("chat.messages.copyAnswer")}
-                  onClick={() => void actions.current?.copyAnswer({ id: message.id, text })}
-                  size="icon"
-                  title={copyState === "refused" ? t("chat.messages.copyAnswerRefused") : undefined}
-                  type="button"
-                  variant="ghost"
-                >
-                  {copyState === "copied" ? (
-                    <Check aria-hidden="true" className="h-3.5 w-3.5 text-success" />
-                  ) : copyState === "refused" ? (
-                    <AlertCircle aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />
-                  ) : (
-                    <Copy aria-hidden="true" className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              ) : null}
               <Button
                 aria-label={t("chat.messages.delete")}
+                title={t("chat.messages.delete")}
                 onClick={() => actions.current?.requestDeleteMessage(message)}
                 size="icon"
                 type="button"
@@ -298,25 +382,40 @@ export const MessageRow = memo(function MessageRow({
                 <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
               </Button>
             </div>
-          </div>
-        </header>
+          </header>
+          )
+        ) : (
+          <header className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="label-mono">
+                {getMessageRoleLabel(message.role)}
+              </span>
+            </div>
+            {isLastAssistantStreaming ? (
+              <span className="label-mono inline-flex items-center">
+                <Spinner aria-hidden="true" className="mr-1 h-3 w-3" />
+                {t("chat.toolbar.statusGenerating")}
+              </span>
+            ) : null}
+          </header>
+        )}
 
         {isEditing ? (
-          <div className="space-y-2">
+          <div className="chat-user-editor-body">
             <Textarea
-              autoFocus
+              ref={editTextareaRef}
+              className="chat-user-editor-input block min-h-[68px] w-full resize-none border-0 bg-transparent px-3.5 pb-2 pt-3 text-sm leading-6 shadow-none focus-visible:ring-0"
               onChange={(event) => actions.current?.setEditingMessageText(event.target.value)}
-              rows={3}
+              onKeyDown={onEditKeyDown}
+              rows={2}
               value={editingText}
             />
-            <div className="flex items-center gap-1">
-              <Button onClick={() => void actions.current?.saveEditedMessage(message)} size="sm" type="button">
-                <Check aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
-                {resendsEdited ? t("chat.messages.resendEdited") : t("chat.common.save")}
-              </Button>
+            <div className="chat-user-editor-foot">
               <Button onClick={() => actions.current?.cancelEditingMessage()} size="sm" type="button" variant="ghost">
-                <X aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
                 {t("chat.common.cancel")}
+              </Button>
+              <Button disabled={!editingText.trim()} onClick={() => void actions.current?.saveEditedMessage(message)} size="sm" type="button">
+                {resendsEdited ? t("chat.messages.resendEdited") : t("chat.common.save")}
               </Button>
             </div>
           </div>
@@ -339,7 +438,21 @@ export const MessageRow = memo(function MessageRow({
         {!isUser ? <QuestionRecords parts={toolParts} /> : null}
         <div className={hasCopyBody ? undefined : "contents"} data-chat-copy-body={hasCopyBody || undefined} tabIndex={hasCopyBody ? 0 : undefined}
           role={hasCopyBody ? "group" : undefined} aria-label={hasCopyBody ? t("chat.contextMenu.messageBody") : undefined}>
-        {!isEditing && pieces ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}>{pieces.map((piece, index) => {
+        {!isEditing && pieces ? (fold.foldable ? (
+          <div className="answer-fold" data-folded={!fold.expanded || undefined} data-overflows={fold.overflows || undefined}>
+            <div ref={foldBodyRef} className="answer-fold-body">{pieces.map((piece, index) => {
+              if (piece.kind === "text") {
+                const after = pieces.slice(0, index).reverse().find(item => item.kind === "picture");
+                return <MarkdownMessage key={`text-after-${after?.kind === "picture" ? after.callId : "start"}`} text={piece.text} streaming={isLastAssistantStreaming && index === pieces.length - 1} />;
+              }
+              if (!piece.picture && piece.state !== "input-streaming" && piece.state !== "input-available") return null;
+              const picture = piece.picture;
+              return <ChatPicture key={`picture-${piece.callId}`} url={picture?.url ?? null} alt={t("chat.messages.generatedImage")} testId="generated-picture" open={openPicture}>
+                {picture ? reuseButton(picture.url, `${message.id}-${picture.callId}`, `generated-${picture.mediaId}`) : null}
+              </ChatPicture>;
+            })}</div>
+          </div>
+        ) : pieces.map((piece, index) => {
           if (piece.kind === "text") {
             const after = pieces.slice(0, index).reverse().find(item => item.kind === "picture");
             return <MarkdownMessage key={`text-after-${after?.kind === "picture" ? after.callId : "start"}`} text={piece.text} streaming={isLastAssistantStreaming && index === pieces.length - 1} />;
@@ -350,8 +463,12 @@ export const MessageRow = memo(function MessageRow({
           return <ChatPicture key={`picture-${piece.callId}`} url={picture?.url ?? null} alt={t("chat.messages.generatedImage")} testId="generated-picture" open={openPicture}>
             {picture ? reuseButton(picture.url, `${message.id}-${picture.callId}`, `generated-${picture.mediaId}`) : null}
           </ChatPicture>;
-        })}</CollapsibleAnswer>
-          : !isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
+        }))
+          : !isEditing && text ? (fold.foldable ? (
+            <div className="answer-fold" data-folded={!fold.expanded || undefined} data-overflows={fold.overflows || undefined}>
+              <div ref={foldBodyRef} className="answer-fold-body"><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></div>
+            </div>
+          ) : <MarkdownMessage text={text} streaming={isLastAssistantStreaming} />) : null}
         <div className="contents" data-chat-copy-ignore>
         {skippedTool ? <p className="mt-2 text-xs text-muted-foreground">{tf("chat.slash.toolNotCalled", { name: skippedTool })}</p> : null}
         {memoryNote && !isUser && !pendingHere ? <p className="answer-memory-note mt-2 text-xs text-muted-foreground" data-outcome={memoryNote.outcome}>
@@ -422,6 +539,68 @@ export const MessageRow = memo(function MessageRow({
         })}
         </div>
         {!isUser && !pendingHere && !toolParts.some(part => part.state === "approval-requested") ? <EditedFiles parts={toolParts} chatId={chatId} runIds={readRunIds(message.metadata)} /> : null}
+        {!isUser ? (
+          <footer className="chat-assistant-actions mt-2 flex flex-wrap items-center gap-1" data-has-fold={fold.overflows || undefined} data-chat-copy-ignore>
+            {fold.overflows ? (
+              <button type="button" className="answer-fold-toggle" aria-expanded={fold.expanded} onClick={fold.toggle}>
+                {t(fold.expanded ? "chat.messages.collapseAnswer" : "chat.messages.expandAnswer")}
+              </button>
+            ) : null}
+            <div
+              className="message-actions flex items-center gap-0.5"
+              data-persistent={isLast && !isLive && !isPending ? "true" : undefined}
+            >
+              {text ? (
+                <Button
+                  aria-label={copyState === "refused" ? t("chat.messages.copyAnswerRefused") : t("chat.messages.copyAnswer")}
+                  onClick={() => void actions.current?.copyAnswer({ id: message.id, text })}
+                  size="icon"
+                  title={copyState === "refused" ? t("chat.messages.copyAnswerRefused") : copyState === "copied" ? t("chat.code.copied") : t("chat.messages.copyAnswer")}
+                  type="button"
+                  variant="ghost"
+                >
+                  {copyState === "copied" ? (
+                    <Check aria-hidden="true" className="copy-confirm-icon h-3.5 w-3.5 text-success" />
+                  ) : copyState === "refused" ? (
+                    <AlertCircle aria-hidden="true" className="h-3.5 w-3.5 text-destructive" />
+                  ) : (
+                    <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              ) : null}
+              {isRegenerable && !isPending ? (
+                <Button
+                  aria-label={t("chat.messages.regenerate")}
+                  title={t("chat.messages.regenerate")}
+                  onClick={() => void actions.current?.regenerateMessage(message.id)}
+                  size="icon"
+                  type="button"
+                  variant="ghost"
+                >
+                  <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+                </Button>
+              ) : null}
+              <Button
+                aria-label={t("chat.messages.delete")}
+                title={t("chat.messages.delete")}
+                onClick={() => actions.current?.requestDeleteMessage(message)}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+              </Button>
+              {savedAt ? (
+                <time
+                  className="message-time ml-1.5 whitespace-nowrap font-mono text-[11px] font-medium tracking-wider tabular-nums text-muted-foreground"
+                  dateTime={savedAt.toISOString()} title={fullMessageTime(savedAt)}
+                >
+                  {formatMessageTime(savedAt)}
+                </time>
+              ) : null}
+            </div>
+          </footer>
+        ) : null}
       </article>
     </div>{compactionSummary !== null ? <CompactionMarker summary={compactionSummary} /> : null}
     <ImageViewer image={viewing?.image ?? null} returnFocus={viewing?.returnTo} onClose={() => setViewing(null)} /></>

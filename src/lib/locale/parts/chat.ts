@@ -190,6 +190,7 @@ export const chatMessages = {
   "chat.run.stop": "停止后续步骤",
   "chat.run.budget": "上限",
   "chat.messages.copyAnswer": "复制这条回答",
+  "chat.messages.copyMessage": "复制这条消息",
   "chat.messages.copyAnswerRefused": "复制失败，请检查系统剪贴板权限",
   "chat.contextMenu.label": "右键菜单",
   "chat.contextMenu.messageBody": "消息正文",

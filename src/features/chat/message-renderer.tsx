@@ -115,6 +115,24 @@ export function MessageRenderer({
    * anywhere else stays put and offers a way back.
    */
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false);
+  // Keep the jump button mounted just long enough for its exit transition, then remove it.
+  // Switching conversations hides it at once so the previous chat's pill never lingers over the new one.
+  const [jumpState, setJumpState] = useState<"hidden" | "open" | "closing">("hidden");
+  const [jumpChatId, setJumpChatId] = useState(activeChatId);
+  if (activeChatId !== jumpChatId) {
+    setJumpChatId(activeChatId);
+    if (hasUnreadBelow) setHasUnreadBelow(false);
+    if (jumpState !== "hidden") setJumpState("hidden");
+  } else if (hasUnreadBelow && jumpState !== "open") setJumpState("open");
+  else if (!hasUnreadBelow && jumpState === "open") {
+    const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setJumpState(reduced ? "hidden" : "closing");
+  }
+  useEffect(() => {
+    if (jumpState !== "closing") return;
+    const timer = window.setTimeout(() => setJumpState(current => (current === "closing" ? "hidden" : current)), 220);
+    return () => window.clearTimeout(timer);
+  }, [jumpState]);
   // Which conversation the transcript was last opened for, so the next one is
   // recognised as new rather than as a conversation already being read. Without it
   // only the first conversation of a session opened at its newest message, and the
@@ -156,6 +174,7 @@ export function MessageRenderer({
       else if (panel.scrollTop < lastScrollTopRef.current - 1) followingRef.current = false;
       lastScrollTopRef.current = panel.scrollTop;
       if (followingRef.current) setHasUnreadBelow(false);
+      else if (gap > 160) setHasUnreadBelow(true);
     };
     panel.addEventListener("scroll", onScroll, { passive: true });
     return () => panel.removeEventListener("scroll", onScroll);
@@ -265,17 +284,6 @@ export function MessageRenderer({
   for (let index = messages.length - 1; index >= 0; index--) if (messages[index].role === "user") { lastUserIndex = index; break; }
   return (<div className="chat-transcript-frame relative flex min-h-0 flex-1" data-navigation={showNavigation}>
   <div ref={scrollRef} className="chat-transcript relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6 sm:px-7" data-testid="message-list">
-  {/* The control stays inside the transcript and never overlaps the composer. It sits
-      outside the message column: an item of that column, however short, adds the column's
-      gap, which would push what is being read down the page when it appears. */}
-  {hasUnreadBelow ? (
-    <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-center">
-      <Button className="pointer-events-auto shadow-card" onClick={jumpToLatest} size="sm" type="button" variant="secondary">
-        <ArrowDown aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-        {t("chat.messages.jumpToLatest")}
-      </Button>
-    </div>
-  ) : null}
   <div ref={contentRef} className="chat-transcript-content flex min-h-full flex-col gap-5">
     {/* Same rule as the conversation list: the label stays put while older
         messages load, so the button does not resize and the scroll position
@@ -314,7 +322,7 @@ export function MessageRenderer({
           isEditing={isEditing} editingText={isEditing ? editingMessageText : ""} resendsEdited={isEditing && hasLaterUserMessage(messages, message.id)}
           copyState={copiedMessageId === message.id ? "copied" : refusedMessageId === message.id ? "refused" : null}
           imageUrl={imageByMessageId[message.id]} videoUrl={videoByMessageId[message.id]}
-          attachingImageKey={attachingImageKey} reuseImageActionLabel={reuseImageActionLabel}
+          attachingImageKey={attachingImageKey} reuseImageActionLabel={reuseImageActionLabel} canAttachImage={modelMode === "chat" && Boolean(selectedModelInfo?.supportsImageInput)}
           tools={tools} alwaysReasons={alwaysReasons} notice={isLast ? turnNotice : null} canShowSources={!!onShowSources} memoryNote={memoryNoteByMessageId[message.id]}
           compactionSummary={compaction?.coveredIds.includes(message.id) ? compaction.summary : null}
           chatId={activeChatId} day={day} actions={rowActions} />;
@@ -325,6 +333,21 @@ export function MessageRenderer({
     </SubagentsProvider>)}
   </div>
   </div>
+  {/* Floats at the bottom centre of the transcript frame, right above the composer, without shifting scroll geometry. */}
+  {jumpState !== "hidden" ? (
+    <div
+      className="chat-jump-latest"
+      data-state={jumpState}
+      onAnimationEnd={event => {
+        if (event.target === event.currentTarget && jumpState === "closing") setJumpState("hidden");
+      }}
+    >
+      <Button className="chat-jump-latest-button" onClick={jumpToLatest} size="sm" type="button" variant="secondary" tabIndex={jumpState === "closing" ? -1 : undefined}>
+        <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />
+        {t("chat.messages.jumpToLatest")}
+      </Button>
+    </div>
+  ) : null}
   {showNavigation && <MessageNavigator key={activeChatId ?? "draft"} messages={messages} scrollRef={scrollRef} onNavigate={jumpToMessage}
     hasOlder={!!olderMessagesCursor} loadingOlder={isLoadingOlderMessages} disabled={isPending} onLoadOlder={loadEarlier} />}
   </div>);
