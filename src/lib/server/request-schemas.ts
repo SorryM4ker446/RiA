@@ -110,7 +110,7 @@ export const imageRequestSchema = z.strictObject({
   chatId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/).optional(),
   prompt: z.string().trim().max(4000).default(""),
   model: chatModelSchema.optional(),
-  inputImages: z.array(imageReference).max(MEDIA_LIMITS.attachmentCount).default([]),
+  inputImages: z.array(imageReference).max(MEDIA_LIMITS.referenceCount).default([]),
   aspectRatio: imageAspectRatioSchema.optional(),
 }).refine((body) => Boolean(body.prompt || body.inputImages.length), "prompt or inputImages is required");
 

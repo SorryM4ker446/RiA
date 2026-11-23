@@ -1,4 +1,6 @@
-import { buildChatContext } from "@/lib/chat/context";
+import { buildChatContext, withSteps } from "@/lib/chat/context";
+import { decodePersistedAssistantToolMessage } from "@/lib/ai/ui-message";
+import { withoutReasoningReplay } from "@/lib/models/reasoning-replay";
 import { terminalInputSchema } from "@/lib/terminal/schema";
 import { checkTerminalCommandInputSchema, stopTerminalCommandInputSchema, terminalModelOutput } from "@/tools/terminal";
 import { materializeChatAttachments } from "@/lib/media/messages";
@@ -94,14 +96,24 @@ const fromOn = (row: StoredPosition) => ({ OR: [{ createdAt: { gt: row.createdAt
  * than as the page last saw it.
  */
 async function storedConversation(chatId: string | undefined, messages: UIMessage[], fillNewer = false): Promise<{ messages: UIMessage[]; anchor: string[] }> {
-  if (!chatId) return { messages, anchor: [] };
+  const restore = (message: UIMessage, content?: string) => {
+    if (message.role !== "assistant") return message;
+    // UI history carries decisions and display text. Only stored data can supply native replay blocks.
+    const parts = message.parts.map(part => part.type === "reasoning" && part.providerMetadata
+      ? { ...part, providerMetadata: withoutReasoningReplay(part.providerMetadata) }
+      : "callProviderMetadata" in part && part.callProviderMetadata
+        ? { ...part, callProviderMetadata: withoutReasoningReplay(part.callProviderMetadata) } : part);
+    const steps = content ? decodePersistedAssistantToolMessage(content)?.steps : undefined;
+    return withSteps({ ...message, parts }, steps);
+  };
+  if (!chatId) return { messages: messages.map(message => restore(message)), anchor: [] };
   const covered = await coveredMessage(chatId);
   const anchor = idsOf(covered);
   const select = { id: true, clientMessageId: true, role: true, content: true, createdAt: true } as const;
   const sent = new Set(messages.map(message => message.id));
   const sentIds = [...sent];
   const storedSent = sentIds.length
-    ? await db.message.findMany({ where: { chatId, OR: [{ id: { in: sentIds } }, { clientMessageId: { in: sentIds } }] }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, createdAt: true, clientMessageId: true } })
+    ? await db.message.findMany({ where: { chatId, OR: [{ id: { in: sentIds } }, { clientMessageId: { in: sentIds } }] }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select })
     : [];
   const first = messages[0];
   const firstStored = first ? storedSent.find(row => row.id === first.id || row.clientMessageId === first.id) ?? null : null;
@@ -119,10 +131,16 @@ async function storedConversation(chatId: string | undefined, messages: UIMessag
       orderBy: [{ createdAt: "asc" }, { id: "asc" }], select,
     });
   }
-  if (!older.length && !filledNewer.length) return { messages, anchor };
-  const toUI = (rows: typeof older) => mapStoredMessagesToUI(rows).uiMessages.filter(message => !sent.has(message.id));
+  const storedAssistant = new Map<string, string>();
+  for (const row of [...storedSent, ...older, ...filledNewer]) if (row.role === "assistant") {
+    storedAssistant.set(row.id, row.content);
+    if (row.clientMessageId) storedAssistant.set(row.clientMessageId, row.content);
+  }
+  const fromStore = (message: UIMessage) => restore(message, storedAssistant.get(message.id));
+  const restored = messages.map(fromStore);
+  const toUI = (rows: typeof older) => mapStoredMessagesToUI(rows).uiMessages.filter(message => !sent.has(message.id)).map(fromStore);
   const newer = toUI(filledNewer);
-  return { messages: [...toUI(older), ...(newer.length ? [...messages.slice(0, -1), ...newer, latest!] : messages)], anchor };
+  return { messages: [...toUI(older), ...(newer.length ? [...restored.slice(0, -1), ...newer, restored.at(-1)!] : restored)], anchor };
 }
 
 /** The last message the current summary covers; a summary of an earlier history covers nothing. */
@@ -142,7 +160,9 @@ const idsOf = (message: { id: string; clientMessageId: string | null } | null) =
 export async function storedSummary(chatId: string) {
   const chat = await db.chat.findUnique({ where: { id: chatId }, select: { summary: true, summaryUpToMessageId: true, summaryRevision: true, historyRevision: true, summaryState: true, summaryModelId: true } });
   if (!chat?.summary || chat.summaryRevision !== chat.historyRevision) return null;
-  const covered = await coveredMessage(chatId);
+  const covered = chat.summaryUpToMessageId
+    ? await db.message.findFirst({ where: { id: chat.summaryUpToMessageId, chatId }, select: { id: true, clientMessageId: true } })
+    : null;
   if (chat.summaryUpToMessageId && !covered) return null;
   return { summary: chat.summary, coveredIds: idsOf(covered), state: readSummaryState(chat.summaryState), modelId: chat.summaryModelId };
 }
@@ -169,8 +189,7 @@ export async function conversationWindow(model: ChatRequest["model"], modelRef: 
   const budget = contextBudget(model, preferences.contextLimits[modelRefKey(modelRef)]);
   const calibration = modelRef ? await conversationCalibration(modelRef, messages) : 1;
   const windowTokens = Math.floor(budget.triggerTokens / calibration);
-  // Excerpts stand in for older turns only when no summary covers them; they
-  // grow with the window instead of staying at a size chosen for small models.
+  // Excerpts for uncovered history grow with the window.
   const excerptCharacters = Math.max(4_000, Math.floor(windowTokens / 8));
   return {
     maxTokens: windowTokens,
@@ -258,9 +277,10 @@ export async function prepareModelContext(input: ChatRequest, signal?: AbortSign
     anchorMessageIds: anchor,
     requestContexts: input.requestedChatId ? await sentRequestContexts(input.requestedChatId, input.conversationPolicy?.ephemeral) : undefined,
     // A model that cannot take tools cannot take a record of them either.
-    ...((input.body.mode ?? "chat") === "chat" && input.model?.supportsTools === true && (!input.assistant || input.assistant.tools.length > 0) ? { toolRecords: { replaysReasoning: input.modelRef.providerId === "deepseek", covered: summary?.state.calls, keepPreviousToolTurn: true } } : {}),
+    ...((input.body.mode ?? "chat") === "chat" && input.model?.supportsTools === true && (!input.assistant || input.assistant.tools.length > 0) ? { toolRecords: { reasoningModel: input.modelRef, covered: summary?.state.calls, keepPreviousToolTurn: true } } : {}),
   });
-  const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal), {
+  const historyAttachments = { count: 0, bytes: 0 };
+  const modelMessages = await convertToModelMessages(await materializeChatAttachments(context.messages, signal, historyAttachments, !input.isApprovalResume), {
     // Earlier results reach the model as they did when they were new: a long command's output as its beginning and end.
     tools: {
       generateImage: { inputSchema: generateImageModelFields, toModelOutput: ({ output }: { output: unknown }) => generatedImageForModel(output) },
@@ -270,7 +290,7 @@ export async function prepareModelContext(input: ChatRequest, signal?: AbortSign
     },
   });
 
-  return { context, modelMessages };
+  return { context, modelMessages, historyAttachments, approvalMessage: input.isApprovalResume ? stored.messages.at(-1) : undefined };
 }
 /**
  * The user's stated preferences, rendered as instructions.

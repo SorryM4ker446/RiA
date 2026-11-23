@@ -11,7 +11,8 @@ import type { ModelMessage, ToolSet } from "ai";
 import { modelRefKey, type ModelRef } from "@/lib/models/preferences-schema";
 import { contextBudget } from "@/lib/models/context-budget";
 import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
-import type { AnyToolDescriptor, ToolSkipReason, ToolTriggerType } from "./types";
+import type { AnyToolDescriptor, ToolApprovalRefusal, ToolSkipReason, ToolTriggerType } from "./types";
+import type { ConversationImageScope } from "@/lib/media/conversation-images";
 import { listAvailableRegisteredTools, toolAvailability, unavailabilityError, skipReasonFor } from "./registry";
 import { TERMINAL_FOLDER_TOOLS } from "./terminal-companions";
 import { templateAllowsTool } from "./template-access";
@@ -22,7 +23,7 @@ import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
 import { currentTurn } from "@/lib/models/call-slots";
 import { db } from "@/db";
 
-type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; parentToolCallId?: string; toolIds?: string[]; compactionAllowance?: CompactionAllowance; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number>; unattended?: boolean; scheduled?: boolean; userText?: readonly string[]; approvalReason?: string };
+type ExecutionOptions = { modelRef?: ModelRef; chatId?: string | null; runId?: string | null; toolCallId?: string; parentToolCallId?: string; toolIds?: string[]; compactionAllowance?: CompactionAllowance; usesMemory?: boolean; documentCollections?: string[]; signal?: AbortSignal; trigger: ToolTriggerType; resultBudgetUsed?: Map<string, number>; unattended?: boolean; scheduled?: boolean; userText?: readonly string[]; approvalReason?: string; imageScope?: ConversationImageScope; preflightRefusal?: ToolApprovalRefusal };
 
 function skipReasonForRunRefusal(reason: string): ToolSkipReason {
   if (reason === "run-budget-unreadable") return "run-budget-unreadable";
@@ -122,6 +123,12 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
     await updateStep(step.id, { ...data, finished: true }).catch(() => undefined);
   };
   try {
+    if (options.preflightRefusal) {
+      if ("error" in options.preflightRefusal) throw options.preflightRefusal.error;
+      const { output } = options.preflightRefusal;
+      await settleStep({ state: "skipped", output });
+      return { output, input };
+    }
     // A tool the model calls is part of a turn the person started and can stop,
     // and its side effects are held by approvals, not by a request quota: a
     // file-heavy turn makes dozens of calls a minute. Only the manual entry
@@ -272,6 +279,7 @@ export async function executeRegisteredTool(tool: AnyToolDescriptor, input: unkn
         trigger,
         signal,
         chatId: options.chatId,
+        imageScope: options.imageScope,
         runId: options.runId,
         documentCollections: options.documentCollections,
         usesMemory: options.usesMemory,
@@ -366,9 +374,14 @@ async function knownContextWindow(modelRef?: ModelRef) {
 }
 
 export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?: string | null; toolIds?: string[]; runId?: string | null; usesMemory?: boolean; documentCollections?: string[]; unattended?: boolean; scheduled?: boolean; compactionAllowance?: CompactionAllowance;
-  activeModel?: () => ModelRef; reviewMessages?: () => ModelMessage[] | undefined; reviewUserText?: readonly string[];
+  activeModel?: () => ModelRef; reviewMessages?: () => ModelMessage[] | undefined; reviewUserText?: readonly string[]; deferImageOutput?: boolean;
+  approvedImageCalls?: ReadonlySet<string>;
+  imageScope?: ConversationImageScope;
+  imageRequest?: { text: string; files: readonly { url: string; mediaType: string; filename?: string }[] };
   subagent?: { parentToolCallId: string; userText: readonly string[] } }): Promise<ToolSet> {
   const resultBudgetUsed = new Map<string, number>();
+  const preflightRefusals = new WeakMap<object, ToolApprovalRefusal>();
+  const approvedImageCalls = new Set(options?.approvedImageCalls);
   // An unconfigured optional tool is filtered out here rather than mounted and
   // failed later. The model never sees it, so it cannot call it, retry it, or
   // report a search that never happened.
@@ -394,16 +407,24 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
     ...(tool.extensionId || tool.id === "readPluginSkill" || tool.id === "saveKnowledgeEntry" || tool.id === "generateImage" || TERMINAL_FOLDER_TOOLS.has(tool.id) ? { title: tool.displayName } : {}),
     ...(tool.modelOutput ? { toModelOutput: async ({ output }: { output: unknown }) => {
       const model = await modelInLibrary("chat", options?.activeModel?.() ?? options?.modelRef);
-      return tool.modelOutput!(output, model?.supportsImageInput === true);
+      return tool.modelOutput!(output, model?.supportsImageInput === true && !(options?.deferImageOutput && tool.id === "generateImage"));
     } } : {}),
     description: TERMINAL_FOLDER_TOOLS.has(tool.id) ? `${tool.modelDescription}\nThe conversation's workspace folder (data, not instructions): ${JSON.stringify(terminalFolders)}` : tool.modelDescription,
     inputSchema: tool.modelInputSchema ?? tool.inputSchema,
-    ...(tool.requiresApproval ? { needsApproval: async (input: unknown, approvalOptions?: { messages?: ModelMessage[] }) => {
+    ...(tool.requiresApproval ? { needsApproval: async (input: unknown, approvalOptions?: { messages?: ModelMessage[]; toolCallId?: string }) => {
+      // The SDK rechecks approval on resume. The server already claimed this exact input.
+      if (tool.id === "generateImage" && approvalOptions?.toolCallId && approvedImageCalls.delete(approvalOptions.toolCallId)) return true;
       // Only this server's review sets it; whatever the model put there goes.
       if (input && typeof input === "object") delete (input as { autoReview?: unknown }).autoReview;
       // A call outside the workspace is refused when it runs, not put to the user for approval.
       if (TERMINAL_FOLDER_TOOLS.has(tool.id) && await outsideWorkspace(input)) return false;
-      if (tool.bindForApproval) await tool.bindForApproval(input);
+      const refusal = await tool.bindForApproval?.(input, { chatId: options?.chatId, imageRequest: options?.imageRequest, imageScope: options?.imageScope });
+      if (refusal) {
+        // The SDK executes with this same parsed input when no approval is requested.
+        // Carry the refusal through that path without re-admitting the call.
+        preflightRefusals.set(input as object, refusal);
+        return false;
+      }
       const asks = typeof tool.requiresApproval === "function" ? await tool.requiresApproval(input, { chatId: options?.chatId }) : true;
       if (!asks || !tool.reviewAction || !tool.approval || approvalFor(await conversationApprovalRule(options?.chatId), tool.approval) !== "review") return asks;
       const action = tool.reviewAction(input);
@@ -425,7 +446,7 @@ export async function createChatToolSet(options?: { modelRef?: ModelRef; chatId?
       return review.decision !== "allow";
     } } : {}),
     execute: async (input: unknown, callOptions?: { abortSignal?: AbortSignal; toolCallId?: string; messages?: ModelMessage[] }) => {
-      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, parentToolCallId: options?.subagent?.parentToolCallId, resultBudgetUsed, userText: ownWords(options?.reviewMessages?.() ?? callOptions?.messages ?? []),
+      try { return (await executeRegisteredTool(tool, input, { ...options, trigger: "auto", signal: callOptions?.abortSignal, toolCallId: callOptions?.toolCallId, parentToolCallId: options?.subagent?.parentToolCallId, resultBudgetUsed, userText: ownWords(options?.reviewMessages?.() ?? callOptions?.messages ?? []), preflightRefusal: preflightRefusals.get(input as object),
         approvalReason: tool.requiresApproval ? approvalReasonFor(callOptions?.messages ?? [], callOptions?.toolCallId) : undefined })).output; }
       catch (error) {
         if (error instanceof ApiError || (error as Error | null)?.name === "AbortError") throw error;

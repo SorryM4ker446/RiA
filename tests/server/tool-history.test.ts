@@ -81,8 +81,9 @@ test("small history budgets retain the latest tool outcome instead of an earlier
     { id: "question", role: "user", parts: [{ type: "text", text: "Build the app" }] }, message,
     { id: "next", role: "user", parts: [{ type: "text", text: "Explain the failure" }] },
   ], { maxMessages: 2 });
-  assert.match(history.historyExcerpt, /"exitCode":2/);
-  assert.match(history.historyExcerpt, /missing symbol/);
+  const excerpt = history.historyGap().text;
+  assert.match(excerpt, /"exitCode":2/);
+  assert.match(excerpt, /missing symbol/);
 });
 
 test("Unicode and escaping survive bounded excerpts without splitting surrogate pairs", () => {

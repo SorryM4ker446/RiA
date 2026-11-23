@@ -27,7 +27,7 @@ export async function parseChatRequest(raw: unknown) {
   });
   const requestedChatId = body.chatId ?? body.conversationId ?? body.id;
   const existing = requestedChatId ? await db.chat.findUnique({ where: { id: requestedChatId }, select: {
-    id: true, ...conversationModelSelect,
+    id: true, historyRevision: true, ...conversationModelSelect,
   } }) : null;
   // Read once here so the chat call and every auxiliary call in the same turn
   // reason the same way, instead of each reading it at a different moment.
@@ -64,12 +64,9 @@ export async function parseChatRequest(raw: unknown) {
   if (isApprovalResume && assistant && messages.some(message => message.parts.some(part => part.type.startsWith("tool-") && "state" in part && part.state === "approval-responded" && !templateAllowsTool(assistant.tools, part.type.slice(5))))) {
     throw new ApiError({ code: "VALIDATION_ERROR", message: t("errors.theCurrentAssistantTemplateDoesNotAllowThis") });
   }
-  for (const message of messages) {
-    const files = message.parts.filter((part) => part.type === "file");
-    if (files.length) await resolveChatAttachments(files);
-  }
+  if (!isApprovalResume && latestUserMessage?.files.length) await resolveChatAttachments(latestUserMessage.files);
 
-  if (latestUserMessage?.files.some(file => file.mediaType.startsWith("image/")) && !model?.supportsImageInput) {
+  if (!isApprovalResume && latestUserMessage?.files.some(file => file.mediaType.startsWith("image/")) && !model?.supportsImageInput) {
     throw new ApiError({
       code: "VALIDATION_ERROR",
       message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoImageSwitch")}`,

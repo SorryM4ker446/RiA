@@ -30,7 +30,7 @@ export const TOOL_ENABLED_INSTRUCTIONS = [
 ];
 
 export const IMAGE_GENERATION_INSTRUCTION =
-  "A successful generateImage result with imageAttached=false confirms generation only. About that picture, say only that it was generated, plus a short statement that you cannot inspect it if inspection was requested. Omit every visual detail and the drawing plan, including details labelled as coming from the prompt. Continue any separate tasks in the user's request as usual.";
+  "A successful generateImage result with imageAttached=false confirms generation only. Say the picture is ready and, if asked to inspect it, that it cannot be verified. For imageAttached=true, inspect the generated picture itself. If asked about exact text, read each character from that result. Report distorted, changed or uncertain characters as such. A prompt and the original reference describe the target and cannot verify the result. Continue any separate tasks normally.";
 
 export const UNSEEN_IMAGE_REPLY_INSTRUCTION =
   "A picture just generated in this turn was shown to the user without being transmitted to you. For that picture, use only the equivalent of ‘The image is ready.’ in the user’s language. If the user asked you to inspect it, add only the equivalent of ‘I did not receive the image, so I cannot verify its contents.’ Leave out all requested shapes, colors, sizes and positions, even as hypothetical examples. Do not offer to inspect it by having the user send it again. Continue any separately requested work normally.";

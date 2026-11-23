@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { wrapLanguageModel, wrapEmbeddingModel, type LanguageModel, type EmbeddingModel } from "ai";
 import { t } from "@/lib/locale";
 import { dataRequestContext } from "@/lib/server/data-operations";
@@ -15,6 +16,7 @@ import { contextCalibration } from "./context-calibration";
 import { MODEL_RETRIES, QUICK_RETRIES, retryDelay, waitForRetry } from "./model-retry";
 import { continueTruncated } from "./continuation";
 import { needsCacheBreakpoints, withCacheBreakpoints } from "./prompt-cache";
+import { projectReasoning, reasoningOrigin, tagReasoningPart } from "./reasoning-replay";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v3" }>;
 type Embed = Extract<EmbeddingModel, { specificationVersion: "v3" }>;
@@ -23,6 +25,10 @@ type Part = StreamResult["stream"] extends ReadableStream<infer T> ? T : never;
 type Prompt = Parameters<Model["doStream"]>[0]["prompt"];
 
 export type ObserveOptions = {
+  /** Recheck request-specific access immediately before sending each attempt. */
+  beforeSubmit?: () => Promise<void>;
+  /** A speculative summary has one admitted attempt on the model it was planned for. */
+  singleAttempt?: boolean;
   /** This generated call repeats a prefix the conversation just sent, so it may read it from a provider's cache. */
   readsCachedPrefix?: boolean;
   /**
@@ -44,6 +50,39 @@ const hasImages = (prompt: Prompt) => prompt.some(message => {
   return message.content.some(part => part.type === "tool-result" && part.output.type === "content"
     && part.output.value.some(item => item.type === "image-data" || item.type === "image-url"));
 });
+
+function reserveToolIds(prompt: Prompt, used: Set<string>) {
+  for (const message of prompt) if (message.role === "assistant" || message.role === "tool") {
+    for (const part of message.content) if ("toolCallId" in part) used.add(part.toolCallId);
+  }
+}
+
+function distinguishToolCalls(used: Set<string>) {
+  const responseIds = new Map<string, string>();
+  const callId = (id: string) => {
+    const existing = responseIds.get(id);
+    if (existing) return existing;
+    let stable = id;
+    while (used.has(stable)) stable = `call_${randomUUID()}`;
+    used.add(stable);
+    responseIds.set(id, stable);
+    return stable;
+  };
+  return (part: Part): Part => {
+    switch (part.type) {
+      case "tool-input-start":
+      case "tool-input-delta":
+      case "tool-input-end":
+        return { ...part, id: callId(part.id) };
+      case "tool-call":
+      case "tool-result":
+      case "tool-approval-request":
+        return { ...part, toolCallId: callId(part.toolCallId) };
+      default:
+        return part;
+    }
+  };
+}
 
 /**
  * How long a chat model that failed stays degraded. Within the window its calls
@@ -72,10 +111,13 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
   // it for: the selected one, until the fallback takes over and keeps the rest
   // of the request, or the selected one again if the fallback fails first.
   let current: ModelRef = modelRef;
+  // The SDK uses one ID namespace for all tool parts in an assistant message.
+  const usedToolIds = new Set<string>();
   const callSource = modelCallSource();
   // An unattended call under a money ceiling spends its allowance on every
   // attempt, so it is not retried; without one it is, like any other.
   const retriable = async () => {
+    if (options.singleAttempt) return false;
     if (callSource !== "scheduled") return true;
     const limits = (await getModelPreferences()).callLimits;
     return limits.backgroundMaxEstimatedUsd === null && limits.backgroundDailyEstimatedUsd === null;
@@ -109,6 +151,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
    * is degraded, the fallback is tried first.
    */
   const candidatesFor = async (params: { prompt: Prompt; tools?: readonly unknown[] }): Promise<ModelRef[]> => {
+    if (options.singleAttempt) return [modelRef];
     const configured = (await getModelPreferences()).chat.fallback;
     const fallbackModel = configured ? await modelInLibrary("chat", configured) : null;
     const fallback = configured && fallbackModel && !sameRef(configured, modelRef)
@@ -149,10 +192,15 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
         let admission: Awaited<ReturnType<typeof beginModelAttempt>> | undefined;
         try {
           if (!sameRef(selected, current)) base = await switchTo(selected, params);
-          const selectedParams = await withReasoning(selected, { ...base, maxOutputTokens: await plannedCap(selected, base),
-            ...(options?.readsCachedPrefix && needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(base.prompt) } : {}) });
+          const projected = { ...base, prompt: projectReasoning(base.prompt, selected, true) };
+          const selectedParams = await withReasoning(selected, { ...projected, maxOutputTokens: await plannedCap(selected, projected),
+            ...(options?.readsCachedPrefix && needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(projected.prompt) } : {}) });
           const result = await withModelLease("chat", selected, async () => {
             admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: selectedParams.prompt, maxOutputTokens: selectedParams.maxOutputTokens, fallback: isFallback, signal: params.abortSignal });
+            if (options.beforeSubmit) {
+              await options.beforeSubmit();
+              params.abortSignal?.throwIfAborted();
+            }
             return (isFallback ? alternate(selected) : model).doGenerate(selectedParams);
           });
           if (admission) await recordModelAttempt({ attemptId: admission.id, requestId: context?.requestId, mode: "chat", modelId: selected.modelId, modelProvider: selected.providerId, started, usage: result.usage, metadata: result.providerMetadata, fallback: isFallback, rate: admission.rate });
@@ -179,6 +227,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
       }
       // The call as sent to the model now answering; re-planned when that changes.
       let base = params;
+      reserveToolIds(params.prompt, usedToolIds);
       // Each candidate is retried after a transient failure before the next is
       // tried. Only failures before any part reaches the caller get here.
       for (let attempt = 0, retries = 0; ;) {
@@ -199,14 +248,22 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
           } finally { await releaseLease?.(); }
         };
         try {
-          if (!sameRef(selected, current)) base = await switchTo(selected, params);
+          if (!sameRef(selected, current)) {
+            base = await switchTo(selected, params);
+            reserveToolIds(base.prompt, usedToolIds);
+          }
           const lease = await acquireModelLease("chat", selected);
           releaseLease = lease.release;
-          const selectedParams = await withReasoning(selected, { ...base, maxOutputTokens: await plannedCap(selected, base),
+          const projected = { ...base, prompt: projectReasoning(base.prompt, selected, true) };
+          const selectedParams = await withReasoning(selected, { ...projected, maxOutputTokens: await plannedCap(selected, projected),
             // Chat steps repeat their prefix across turns and tool steps, so a
             // cache write is read back; one-off generated calls are not marked.
-            ...(needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(base.prompt) } : {}) });
+            ...(needsCacheBreakpoints(selected) ? { prompt: withCacheBreakpoints(projected.prompt) } : {}) });
           admission = await beginModelAttempt({ mode: "chat", ref: selected, source: callSource, prompt: selectedParams.prompt, maxOutputTokens: selectedParams.maxOutputTokens, fallback: isFallback, signal: params.abortSignal });
+          if (options.beforeSubmit) {
+            await options.beforeSubmit();
+            params.abortSignal?.throwIfAborted();
+          }
           const result = await (isFallback ? alternate(selected) : model).doStream(selectedParams);
           reader = result.stream.getReader();
           const buffered: Part[] = [];
@@ -223,8 +280,30 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
           }
           const source = reader;
           let cancelled = false;
+          const responseId = randomUUID();
+          // Some adapters publish the response ID and model as separate events.
+          const metadataOrigin = (part: Part) => part.type === "response-metadata" && part.modelId
+            ? reasoningOrigin(selected, part.modelId, responseId) : undefined;
+          let origin = buffered.map(metadataOrigin).find(value => value !== undefined);
+          let capturedDetails: string | undefined;
+          const distinguish = distinguishToolCalls(usedToolIds);
+          const emit = (controller: ReadableStreamDefaultController<Part>, part: Part) => {
+            origin ??= metadataOrigin(part);
+            const details = "providerMetadata" in part ? part.providerMetadata?.openrouter?.reasoning_details : undefined;
+            if (origin?.providerId === "openrouter" && Array.isArray(details) && details.length) {
+              const snapshot = JSON.stringify(details);
+              if (part.type === "finish" && capturedDetails !== snapshot) {
+                // Encrypted details can arrive without a visible reasoning event or after a tool call.
+                const id = "openrouter-native-reasoning";
+                controller.enqueue(tagReasoningPart({ type: "reasoning-start", id }, origin));
+                controller.enqueue(tagReasoningPart({ type: "reasoning-end", id, providerMetadata: part.providerMetadata }, origin));
+              }
+              if (part.type === "reasoning-end" || part.type === "tool-call") capturedDetails = snapshot;
+            }
+            controller.enqueue(tagReasoningPart(distinguish(part), origin));
+          };
           const observed = new ReadableStream<Part>({
-            start(controller) { for (const part of buffered) controller.enqueue(part); },
+            start(controller) { for (const part of buffered) emit(controller, part); },
             async pull(controller) {
               try {
                 const item = await source.read();
@@ -232,7 +311,7 @@ export function observeLanguageModel(model: Model, ref: ModelRef, alternate: (re
                 if (item.done) { source.releaseLock(); await record(streamError ?? (finished?.finishReason.unified === "error" || !finished ? new Error("Incomplete model stream") : undefined)); controller.close(); return; }
                 if (item.value.type === "finish") finished = item.value;
                 if (item.value.type === "error") streamError = item.value.error ?? new Error("Model stream failed");
-                controller.enqueue(item.value);
+                emit(controller, item.value);
               } catch (error) {
                 if (cancelled) return;
                 await source.cancel(error).catch(() => undefined);

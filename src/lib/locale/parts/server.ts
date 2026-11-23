@@ -88,12 +88,13 @@ export const serverMessages = {
   "lib.media.regenerateNoRefs": "当前模型不支持参考图，无法按原参数重新生成。",
   "lib.media.noImageEndpoint": "当前模型没有已确认兼容的参考图端点。",
   "lib.media.noOutput": "模型没有返回媒体。",
-  "lib.media.tooManyAttachments": "每条消息最多添加 4 个附件。",
+  "lib.media.tooManyAttachments": "每条消息最多添加 6 个附件。",
   "lib.media.unsupportedChatAttachmentType": "支持 PNG、JPEG、WebP、GIF 图片，以及 PDF 和 Word（.docx）文档；旧版 .doc 请先转换为 .docx。",
   "lib.media.unsupportedAttachmentType": "仅支持 PNG、JPEG、WebP 和 GIF 图片。",
   "lib.media.attachmentSize": "每个附件须大于 0 字节且不超过 8 MiB。",
   "lib.media.generatedImageAttachmentSize": "复用的成图须大于 0 字节且不超过 20 MiB。",
-  "lib.media.totalAttachmentSize": "附件总大小不能超过 20 MiB。",
+  "lib.media.totalAttachmentSize": "附件总大小不能超过 24 MiB。",
+  "lib.media.referenceSize": "生成参考图的总大小不能超过 20 MiB。",
 
   // --- backups -------------------------------------------------------------
   "lib.backups.invalidArchive": "备份格式、长度或校验值无效。",

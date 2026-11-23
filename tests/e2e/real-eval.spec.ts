@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { test, expect, type RealModel } from "../helpers/real-model";
@@ -40,14 +41,14 @@ async function newChat(page: Page, real: RealModel, title: string) {
 
 /** Sends one message and reads the answer's stream to its end, as the page would. */
 async function ask(page: Page, real: RealModel, chatId: string, text: string) {
-  const status = await page.evaluate(async ({ url, chatId, text }) => {
+  const { status, organizing } = await page.evaluate(async ({ url, chatId, text }) => {
     const response = await fetch(url, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
       body: JSON.stringify({ chatId, trigger: "submit-message", messages: [{ id: `eval-${crypto.randomUUID()}`, role: "user", parts: [{ type: "text", text }] }] }) });
-    await response.text();
-    return response.status;
+    return { status: response.status, organizing: (await response.text()).includes('"organizing":true') };
   }, { url: `${real.origin}/api/chat`, chatId, text });
   expect(status, "the message was accepted").toBe(200);
   await expect.poll(async () => (await browserData(page, `${real.origin}/api/conversations/${chatId}`) as { answering: boolean }).answering, { timeout: 240_000 }).toBe(false);
+  return { organizing };
 }
 
 /** The last answer's text, and every tool the turn called, from the saved records. */
@@ -160,6 +161,71 @@ async function workspace(page: Page, real: RealModel, title: string, options: { 
   expect((await browserApi(page, `${real.origin}/api/conversations/${chatId}`, "PATCH", { workspaceGrantId: grant.body.data.id })).status).toBe(200);
   return { chatId, folder, cleanup: () => rmSync(folder, { recursive: true, force: true }) };
 }
+
+test("summary coverage: a multi-step repair keeps a requirement from older saved history @real @eval", async ({ page, real }) => {
+  const { checks } = await measured(page, real, async () => {
+    const { chatId, folder, cleanup } = await workspace(page, real, "Settlement report repair");
+    try {
+      const url = `${real.origin}/api/conversations/${chatId}`;
+      const preferences = await browserData(page, `${real.origin}/api/models`);
+      preferences.contextLimits[`${real.provider}:${real.modelId}`] = { contextLength: 32_000, maxOutputTokens: 2048 };
+      preferences.thinking.enabled = false;
+      expect((await browserApi(page, `${real.origin}/api/models`, "PUT", preferences)).status).toBe(200);
+
+      const save = async (clientMessageId: string, role: "user" | "assistant", content: string) => {
+        expect((await browserApi(page, `${url}/messages`, "POST", { clientMessageId, role, content })).status).toBe(201);
+      };
+      const readSummary = () => browserData(page, `${url}/summary`) as Promise<{ summary: string; coveredIds: string[] }>;
+      await save("setup-user", "user", "We are working on the settlement report in this folder.");
+      await save("setup-assistant", "assistant", "Understood. I will work only in the settlement report folder.");
+      await save("setup-next", "user", "I will send the report requirements separately.");
+      expect((await browserApi(page, `${real.origin}/api/tools/run`, "POST", { tool: "compactContext", input: {}, chatId })).status).toBe(200);
+      const before = await readSummary();
+      expect(before.coveredIds).toContain("setup-assistant");
+
+      const label = "SETTLE-37-Q8";
+      const notes = "The project workspace contains routine staging and review notes.\n";
+      await save("report-contract", "user", `${notes.repeat(40)}\nHard requirement for the settlement report task: report.cjs must export BATCH_LABEL with the exact value ${label}. Keep the existing total function and tests.\n${notes.repeat(40)}`);
+      await save("ack-contract", "assistant", "Understood. I will preserve the exact batch label and the existing tests.");
+      for (let index = 0; index < 8; index++) {
+        await save(`notes-${index}`, "user", `Staging notes ${index + 1}:\n${notes.repeat(215)}`);
+        await save(`ack-${index}`, "assistant", "Recorded. These staging notes add no requirements to the report.");
+      }
+
+      writeFileSync(join(folder, "calculator.cjs"), "exports.toCents = amount => Math.round(amount * 100);\n");
+      writeFileSync(join(folder, "report.cjs"), "const { cents } = require('./calculator.cjs');\nexports.total = amounts => amounts.reduce((sum, amount) => sum + cents(amount), 0);\n");
+      const testFile = "project.test.cjs";
+      const testSource = "const test = require('node:test');\nconst assert = require('node:assert/strict');\ntest('totals amounts in cents', () => assert.equal(require('./report.cjs').total([1.25, 2.39]), 364));\n";
+      writeFileSync(join(folder, testFile), testSource);
+      const node = (args: string[]) => spawnSync(process.execPath, args, { cwd: folder, env: { NODE_ENV: "test", SystemRoot: process.env.SystemRoot }, encoding: "utf8", windowsHide: true });
+      const initial = node(["--test", testFile]);
+      expect(initial.status).toBe(1);
+      expect(initial.stdout).toContain("cents is not a function");
+
+      const { organizing } = await ask(page, real, chatId, "First run node --test project.test.cjs to reproduce the report failure. Inspect the relevant files, fix the report and implement the exact report contract I gave earlier. Keep the tests unchanged. Run node --test project.test.cjs again and report the result.");
+      const { answer, tools } = await turn(page, real, chatId);
+      const saved = await browserData(page, `${url}/messages`) as { id: string; clientMessageId: string; role: string; content: string }[];
+      const assistant = decodePersistedAssistantToolMessage(saved.filter(message => message.role === "assistant").at(-1)?.content ?? "");
+      const runs = assistant?.tools.filter(tool => tool.toolName === "runTerminalCommand" && (tool.input as { command?: string } | undefined)?.command?.includes(testFile))
+        .map(tool => tool.output as { exitCode?: number; stdout?: string } | undefined) ?? [];
+      const after = await readSummary();
+      const boundary = saved.findIndex(message => after.coveredIds.includes(message.id));
+      const constraint = saved.findIndex(message => message.clientMessageId === "report-contract");
+      const check = node(["-e", "process.stdout.write(require('./report.cjs').BATCH_LABEL ?? '')"]);
+      const failIndex = runs.findIndex(run => run?.exitCode === 1 && run.stdout?.includes("cents is not a function"));
+      const checks = {
+        organizing, summaryKeptLabel: after.summary.includes(label), coverageIncludesConstraint: constraint >= 0 && boundary >= constraint,
+        ranBeforeAndAfter: failIndex >= 0 && runs.slice(failIndex + 1).some(run => run?.exitCode === 0),
+        testsPass: node(["--test", testFile]).status === 0, testsUnchanged: readFileSync(join(folder, testFile), "utf8") === testSource,
+        reportExportsLabel: check.status === 0 && check.stdout === label,
+      };
+      return { scenario: "summary-coverage-repair", run: 1, pass: Object.values(checks).every(Boolean), checks, tools, answer };
+    } finally { cleanup(); }
+  });
+  expect(checks).toEqual({
+    organizing: true, summaryKeptLabel: true, coverageIncludesConstraint: true, ranBeforeAndAfter: true, testsPass: true, testsUnchanged: true, reportExportsLabel: true,
+  });
+});
 
 test("failures: asked for a file that is not there, the model says so instead of repeating the call @real @eval", async ({ page, real }) => {
   for (let run = 1; run <= REPEATS; run++) {

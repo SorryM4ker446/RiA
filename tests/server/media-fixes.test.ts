@@ -87,11 +87,12 @@ test("a rejected legacy attachment stores nothing across repeated reads", async 
 test("an oversized legacy attachment set is rejected before any bytes are stored", async () => {
   const chat = await newChat();
   const baseline = storedFiles();
-  // Three individually valid attachments that only fail the combined size limit.
+  // Individually valid attachments that only fail the combined size limit.
   const bytes = Buffer.concat([testPng.subarray(0, 8), Buffer.alloc(7 * 1024 * 1024 - 8)]);
   assert.ok(bytes.length < MEDIA_LIMITS.attachmentBytes);
-  assert.ok(bytes.length * 3 > MEDIA_LIMITS.totalAttachmentBytes);
-  const content = legacyUserMessage("Old attachments", Array.from({ length: 3 }, () => ({ url: dataUrl(bytes), mediaType: "image/png" })));
+  const count = Math.floor(MEDIA_LIMITS.totalAttachmentBytes / bytes.length) + 1;
+  assert.ok(count <= MEDIA_LIMITS.attachmentCount);
+  const content = legacyUserMessage("Old attachments", Array.from({ length: count }, () => ({ url: dataUrl(bytes), mediaType: "image/png" })));
   await db.message.create({ data: { chatId: chat.id, role: "user", content } });
   await readConversations(chat.id, 2);
   assert.equal(await db.mediaAsset.count({ where: {} }), 0);

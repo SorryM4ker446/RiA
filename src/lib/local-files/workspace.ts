@@ -34,9 +34,9 @@ export async function conversationApprovalRule(chatId: string | null | undefined
   return readApprovalRule(chat?.scheduledJobs[0]?.approvalRule ?? chat?.approvalRule);
 }
 
-export async function conversationWorkspace(chatId: string | null | undefined): Promise<ConversationWorkspace | null> {
+export async function conversationWorkspace(chatId: string | null | undefined, client: Pick<typeof db, "chat"> = db): Promise<ConversationWorkspace | null> {
   if (!chatId) return null;
-  const chat = await db.chat.findUnique({ where: { id: chatId }, select: {
+  const chat = await client.chat.findUnique({ where: { id: chatId }, select: {
     approvalRule: true,
     workspaceGrant: { select: workspaceSelect },
     scheduledJobs: { select: { approvalRule: true, workspaceGrant: { select: workspaceSelect } }, take: 1 },

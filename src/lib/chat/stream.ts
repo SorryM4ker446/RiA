@@ -25,11 +25,12 @@ import { createThinkingClock, thinkingRecordSchema } from "./thinking";
 import { summarizeWithInternalAgent, type CompactionAllowance } from "./task-summary";
 import { commitTurnFold, keepRestoredContext } from "./summary";
 import { storedSummary } from "./model-context";
+import { prepareStepImages, stepImageStats } from "./step-images";
+import type { ConversationImageScope } from "@/lib/media/conversation-images";
 import { EMPTY_SUMMARY_STATE, foldIntoState, recordedFacts, toolCallsIn, type SummaryState } from "./compaction-state";
 import { restoredContext } from "./compaction-restore";
 import { conversationWorkspace } from "@/lib/local-files/workspace";
 import { externalToolIdPattern } from "@/lib/extensions/schema";
-import { templateAllowsTool } from "@/tools/template-access";
 import { contextCalibration, conversationCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
 import { compactAfterTurn } from "./compaction";
 import { planReminder } from "@/tools/definitions/update-plan";
@@ -39,6 +40,7 @@ import { pendingSubagentReports } from "@/lib/agents/subagents";
 import { activeToolIds } from "@/tools/deferred";
 import { createTurnFailureReader } from "./tool-failure";
 import { createTerminalEvidenceReview } from "./terminal-evidence";
+import { projectReasoning } from "@/lib/models/reasoning-replay";
 /** OpenRouter passes along reasoning it cannot show as encrypted details. */
 function hasEncryptedReasoning(metadata: unknown) {
   const details = (metadata as { openrouter?: { reasoning_details?: unknown } } | undefined)?.openrouter?.reasoning_details;
@@ -47,6 +49,32 @@ function hasEncryptedReasoning(metadata: unknown) {
 
 /** Whether the answer ends asking the user to decide something first (an approval or a question). */
 const awaitsDecision = (message: UIMessage) => message.parts.some(part => "state" in part && part.state === "approval-requested");
+
+/** The SDK streams the parsed call before needsApproval binds its references and adds the verdict. */
+function showBoundImageCalls() {
+  type Part = TextStreamPart<ToolSet>;
+  const pending = new Map<string, Extract<Part, { type: "tool-call" }>>();
+  return new TransformStream<Part, Part>({
+    transform(part, controller) {
+      if (part.type === "tool-call" && part.toolName === "generateImage") {
+        pending.set(part.toolCallId, part);
+        return;
+      }
+      const id = part.type === "tool-approval-request" ? part.toolCall.toolCallId
+        : part.type === "tool-result" || part.type === "tool-error" ? part.toolCallId : undefined;
+      const call = id ? pending.get(id) : undefined;
+      if (call) {
+        pending.delete(call.toolCallId);
+        controller.enqueue(part.type === "tool-approval-request" ? part.toolCall : call);
+      }
+      if (part.type === "finish-step" || part.type === "abort" || part.type === "error") {
+        for (const unsettled of pending.values()) controller.enqueue(unsettled);
+        pending.clear();
+      }
+      controller.enqueue(part);
+    },
+  });
+}
 
 type TurnOutcome = { finishReason: unknown; generationFailed: boolean; aborted: boolean };
 
@@ -90,12 +118,15 @@ async function costOfTurn(params: { usage: unknown; providerMetadata: unknown; m
 type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance; chosenTool?: string | null;
   /** The part of the system prompt listing skills, which the usage view counts separately. */
   skillsPrompt?: string;
+  historyAttachments?: { count: number; bytes: number };
+  approvalMessage?: UIMessage;
+  partialHistory?: string;
   /** The messages this request sent, and whether they and the summary leave nothing out. */
-  foldHistory?: { messages: { id: string; role: string }[]; complete: () => boolean };
+  foldHistory?: { messages: { id: string; role: string }[]; complete: () => boolean; revision: number };
   onModelFold?: () => void;
   /** Whose calls these are: a turn the user is waiting on, or a task that started on its own and is held to the background limits. */
   callSource?: CallSource };
-const LOOKUP_HINT = "The original messages and tool results stay saved: readConversationHistory finds them by toolCallId, messageId or text.";
+const LOOKUP_HINT = "Original messages, pictures and tool results stay saved. Use readConversationHistory for exact history or to look at saved picture pixels by imageIds.";
 const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalizeApiError(error, t("lib.chat.generateFailed"))));
 
 /**
@@ -103,7 +134,7 @@ const streamError = (error: unknown) => JSON.stringify(apiErrorPayload(normalize
  * tells the reader context is being organized, then the answer opens once it is
  * ready, so anything that refuses the answer from then on reads as a stream error.
  */
-export async function streamChatResponse(params: Omit<ChatAnswer, "modelMessages"> & ({ modelMessages: ModelMessage[]; settleContext?: undefined } | { modelMessages?: undefined; settleContext: () => Promise<ModelMessage[]> })) {
+export async function streamChatResponse(params: Omit<ChatAnswer, "modelMessages"> & ({ modelMessages: ModelMessage[]; settleContext?: undefined } | { modelMessages?: undefined; settleContext: () => Promise<Pick<ChatAnswer, "modelMessages" | "partialHistory">> })) {
   const respond = (execute: (writer: UIMessageStreamWriter) => Promise<void>) => createUIMessageStreamResponse({
     stream: createUIMessageStream({ execute: ({ writer }) => execute(writer), onError: streamError }),
     headers: {
@@ -143,12 +174,12 @@ export async function streamChatResponse(params: Omit<ChatAnswer, "modelMessages
     const release = retainDataOperation();
     try {
       writer.write({ type: "data-context-status", data: { organizing: true }, transient: true });
-      const modelMessages = await settleContext().catch(async (error: unknown) => {
+      const settled = await settleContext().catch(async (error: unknown) => {
         if (params.runId) await finishRun(params.runId, "cancelled", "stopped-by-user").catch(() => null);
         throw error;
       });
       writer.write({ type: "data-context-status", data: { organizing: false }, transient: true });
-      await relay(await openChatAnswer({ ...params, modelMessages }), writer);
+      await relay(await openChatAnswer({ ...params, ...settled }), writer);
     } finally { release(); }
   });
 }
@@ -182,8 +213,8 @@ function endsWhenStopped(signal: AbortSignal) {
 
 async function openChatAnswer(params: ChatAnswer) {
   const { input, conversation, systemPrompt, toolsEnabled, signal } = params;
-  let lastStepText = "";
-  const { modelRef, body, messages } = input;
+  const { modelRef, body } = input;
+  const messages = params.approvalMessage ? [...input.messages.slice(0, -1), params.approvalMessage] : input.messages;
   const { chat } = conversation;
   if (toolsEnabled && input.model?.supportsTools !== true) {
     throw new ApiError({ code: "VALIDATION_ERROR", message: `${t("lib.models.chatPrefix")} ${modelRef.modelId} ${t("lib.models.chatNoTools")}` });
@@ -220,9 +251,9 @@ async function openChatAnswer(params: ChatAnswer) {
           terminalEvidenceMissing = true;
           const id = generateId();
           const matches = terminalReview.matchedLines();
-          lastStepText = [t(terminalReview.reportedFailure() ? "chat.terminalEvidenceReportedFailure" : "chat.terminalEvidenceUnverified"), ...matches.map(line => `> ${line}`)].join("\n\n");
+          const text = [t(terminalReview.reportedFailure() ? "chat.terminalEvidenceReportedFailure" : "chat.terminalEvidenceUnverified"), ...matches.map(line => `> ${line}`)].join("\n\n");
           controller.enqueue({ type: "text-start", id });
-          controller.enqueue({ type: "text-delta", id, text: lastStepText });
+          controller.enqueue({ type: "text-delta", id, text });
           controller.enqueue({ type: "text-end", id });
         }
         controller.enqueue(chunk);
@@ -255,11 +286,20 @@ async function openChatAnswer(params: ChatAnswer) {
   let reviewMessages: ModelMessage[] | undefined;
   const reviewUserText = input.latestUserMessage?.notice ? [] : messages.flatMap(message =>
     message.role === "user" && !readMessageNotice(message.metadata) ? [getTextFromUIMessage(message)] : []);
+  const imageScope: ConversationImageScope | undefined = conversation.regenerationSnapshot
+    ? { through: conversation.regenerationSnapshot.from, generated: new Set() } : undefined;
+  const approvedImageCalls = new Set(input.isApprovalResume ? messages.at(-1)?.parts.flatMap(part =>
+    part.type === "tool-generateImage" && "toolCallId" in part && "state" in part && part.state === "approval-responded" && part.approval?.approved
+      ? [part.toolCallId] : []) : []);
   const tools = toolsEnabled ? await createChatToolSet({ modelRef, chatId: chat.id, runId, toolIds: input.assistant?.tools, usesMemory: params.usesMemory !== false, documentCollections: conversationCollections(input.conversationPolicy ?? chat), unattended, scheduled, compactionAllowance: params.compactionAllowance,
-    activeModel: () => activeRef, reviewMessages: () => reviewMessages, reviewUserText }) : undefined;
+    activeModel: () => activeRef, reviewMessages: () => reviewMessages, reviewUserText, deferImageOutput: true, imageScope, approvedImageCalls,
+    imageRequest: input.latestUserMessage ? { text: input.latestUserMessage.text, files: input.latestUserMessage.files } : undefined }) : undefined;
   // An assistant's tools can all be unavailable this turn, leaving none to send.
   const modelMessages = tools && !Object.keys(tools).length && !input.isApprovalResume ? withoutToolRecords(params.modelMessages) : params.modelMessages;
   const budget = contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]);
+  let imageInput = input.model?.supportsImageInput === true;
+  let imageBudget = budget.inputTokens;
+  const projectStep = (stepMessages: ModelMessage[]) => prepareStepImages(projectReasoning(stepMessages, activeRef), { chatId: chat.id, supportsImages: imageInput, inputTokens: imageBudget, historyAttachments: params.historyAttachments, signal, imageScope });
   const toolDefinitions = tools ? await Promise.all(Object.entries(tools).map(async ([name, tool]) => tool.type === "provider"
     ? { type: "provider", name, id: tool.id, args: tool.args }
     : { type: "function", name, description: tool.description, inputSchema: await asSchema(tool.inputSchema).jsonSchema })) : undefined;
@@ -277,35 +317,38 @@ async function openChatAnswer(params: ChatAnswer) {
   let restoredSeen: SummaryState["files"] = [];
   const stepContext = createStepContext({ budget, system: systemPrompt, tools: sentDefinitions(), signal, calibration, onModelFold: params.onModelFold,
     sizes: { skills: params.skillsPrompt, extensionTools: sentDefinitions()?.filter(tool => externalToolIdPattern.test(tool.name)) },
-    handoff: stored ? { state: stored.summary, calls: stored.state.calls, ...(stored.state.restored === undefined ? {} : { restored: stored.state.restored }) } : null,
+    handoff: stored ? { state: stored.summary, calls: stored.state.calls, restored: toolsEnabled ? stored.state.restored : undefined } : null,
+    partialHistory: params.partialHistory,
     recorded: () => [recordedFacts(foldState), tools?.readConversationHistory ? LOOKUP_HINT : ""].filter(Boolean).join("\n"),
     summarize: async (records, previous, sent) => {
       const { state, modelRef: used } = await summarizeWithInternalAgent({ main: activeRef, records, previous, signal, allowance: params.compactionAllowance, request: getLatestUserMessage(messages)?.text,
-        ...(sent ? { conversation: { system: activeSystem, tools: sentTools(), ...sent } } : {}) });
+        ...(sent && !stepImageStats(sent.messages).count && params.foldHistory?.complete() !== false ? { conversation: { system: activeSystem, tools: sentTools(), beforeSubmit: stepContext.authorizeRestoredContext, ...sent } } : {}) });
       summaryModel = `${used.providerId}:${used.modelId}`;
       return state;
     },
     ...(toolsEnabled ? {
-      restoreAfterFold: async (inUse: Set<string>) => {
+      restoreWorkspace: async () => tools?.readProjectFile ? (await conversationWorkspace(chat.id))?.id ?? null : null,
+      restoreAfterFold: async (inUse: Set<string>, workspaceId: string | null) => {
         const { text, seen } = await restoredContext({ state: foldState, inUse, signal, inputTokens: budget.inputTokens, allowSkills: true,
-          workspaceId: (await conversationWorkspace(chat.id))?.id ?? null, allowFiles: !input.assistant || templateAllowsTool(input.assistant.tools, "readProjectFile") });
+          workspaceId, allowFiles: workspaceId !== null });
         restoredSeen = seen;
         return text;
       },
-      onRestored: (restored: string) => {
+      onRestored: restored => {
         const seen = restoredSeen;
         foldWrites = foldWrites.then(async () => { if (keptSummary) await keepRestoredContext({ chatId: chat.id, expected: keptSummary, restored, seen }); }).catch(() => console.error("chat.fold.save.failed"));
       },
     } : {}),
     onFold: fold => {
       foldState = foldIntoState(foldState, { toolCalls: toolCallsIn(fold.evidence) });
-      // Labelled excerpts stand in for this turn only; the stored summary stays as it was.
-      if (fold.degraded) return;
+      // A later fold can build on excerpts from an earlier failed fold. Neither
+      // may replace the persisted summary, even if the later model call succeeds.
+      if (stepContext.report.degraded) return;
       const history = params.foldHistory?.messages ?? [];
       const firstKept = history.flatMap((message, index) => message.role === "user" ? [index] : [])[fold.coveredTurns];
-      const upToMessageId = fold.coveredTurns > 0 && firstKept > 0 && params.foldHistory?.complete() ? history[firstKept - 1].id : undefined;
+      const coveredMessageIds = fold.coveredTurns > 0 && firstKept > 0 && params.foldHistory?.complete() ? history.slice(0, firstKept).map(message => message.id) : undefined;
       foldWrites = foldWrites.then(async () => {
-        if (await commitTurnFold({ chatId: chat.id, expected: keptSummary, summary: fold.state, change: { calls: fold.calls, toolCalls: toolCallsIn(fold.evidence) }, upToMessageId, modelId: summaryModel })) keptSummary = fold.state;
+        if (await commitTurnFold({ chatId: chat.id, historyRevision: params.foldHistory?.revision ?? chat.historyRevision, expected: keptSummary, summary: fold.state, change: { calls: fold.calls, toolCalls: toolCallsIn(fold.evidence) }, coveredMessageIds, modelId: summaryModel })) keptSummary = fold.state;
       }).catch(() => console.error("chat.fold.save.failed"));
     },
   });
@@ -317,13 +360,22 @@ async function openChatAnswer(params: ChatAnswer) {
   const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: activeSystem, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
   const observed: ReturnType<typeof getChatModel> = withModelCallSource(params.callSource ?? "chat", () => getChatModel(modelRef, {
     reasoning: input.reasoning,
+    beforeSubmit: stepContext.authorizeRestoredContext,
     // Whichever model answers takes the request as it stands — same tools, same
     // messages — and the rest of it is planned for that model's own window: the
     // step it takes over is fitted again, and later steps compact against it.
     onSwitch: async ref => {
       activeRef = ref;
-      stepContext.retarget(contextBudget(await modelInLibrary("chat", ref), preferences.contextLimits[modelRefKey(ref)]), await contextCalibration(ref));
-      return toPrompt(await stepContext.refit());
+      const next = await modelInLibrary("chat", ref);
+      const nextBudget = contextBudget(next, preferences.contextLimits[modelRefKey(ref)]);
+      imageInput = next?.supportsImageInput === true;
+      imageBudget = nextBudget.inputTokens;
+      stepContext.retarget(nextBudget, await contextCalibration(ref));
+      const projected = await projectStep(reviewMessages ?? modelMessages);
+      activeSystem = activeSystem.replace(`\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}`, "");
+      if (hasUnseenGeneratedImage(projected)) activeSystem += `\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}`;
+      stepContext.setSystem(activeSystem);
+      return toPrompt((await stepContext.prepare(projected)).messages);
     },
   }));
   const model = wrapLanguageModel({ model: observed, middleware: { specificationVersion: "v3",
@@ -336,7 +388,7 @@ async function openChatAnswer(params: ChatAnswer) {
     },
   } });
   try {
-    await stepContext.prepare(modelMessages);
+    await stepContext.prepare(projectReasoning(modelMessages, activeRef));
     signal.throwIfAborted();
     if (input.isApprovalResume && conversation.approvalDeferred) {
       const previous = await claimChatApproval(chat.id, messages.at(-1)!);
@@ -368,7 +420,8 @@ async function openChatAnswer(params: ChatAnswer) {
     prepareStep: async ({ messages: stepMessages, stepNumber }) => {
       // The approval reviewer reads the actual conversation before app reminders are appended.
       reviewMessages = stepMessages;
-      activeSystem = hasUnseenGeneratedImage(stepMessages) ? `${systemPrompt}\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}` : systemPrompt;
+      const projected = await projectStep(stepMessages);
+      activeSystem = hasUnseenGeneratedImage(projected) ? `${systemPrompt}\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}` : systemPrompt;
       if (terminalReview.hasCompleted()) activeSystem += "\nA command exited with code zero but its output was abbreviated. Before concluding it succeeded, use readTerminalLog to find a test or build outcome and review the rest of both non-empty streams. A filtered search or a log without a result summary does not establish success. If you cannot verify the result, leave it unverified.";
       stepContext.setSystem(activeSystem);
       // Tools loaded on demand in an earlier step are offered, in full, from this one.
@@ -377,7 +430,7 @@ async function openChatAnswer(params: ChatAnswer) {
         const sent = sentDefinitions();
         stepContext.setTools(sent, sent?.filter(tool => externalToolIdPattern.test(tool.name)));
       }
-      const prepared = await stepContext.prepare(stepMessages);
+      const prepared = await stepContext.prepare(projected);
       if (terminalReview.hasCompleted()) {
         terminalReview.clearVisibleEvidence();
         for (const message of prepared.messages) if (message.role === "tool") for (const part of message.content) {
@@ -402,9 +455,8 @@ async function openChatAnswer(params: ChatAnswer) {
       const messages = [...prepared.messages, ...[...subagentReports, ...(reminder ? [reminder] : [])].map(text => ({ role: "user" as const, content: [{ type: "text" as const, text }] }))];
       return { ...prepared, messages, system: activeSystem, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : activeTools ? { activeTools } : {}) };
     },
-    onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata, text }) => {
+    onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata }) => {
       stepContext.observeUsage(usage.inputTokens);
-      lastStepText = text;
       thinkingClock.stepFinished({ reasoning, hiddenReasoning: (usage.outputTokenDetails?.reasoningTokens ?? 0) > 0 || hasEncryptedReasoning(providerMetadata) });
       if (stepNumber === 0 && params.chosenTool && !toolCalls.some(call => call.toolName === params.chosenTool)) skippedTool = params.chosenTool;
     },
@@ -418,6 +470,7 @@ async function openChatAnswer(params: ChatAnswer) {
     // as steady typing rather than jumps; faster than a model writes, so it
     // does not hold the answer back.
     experimental_transform: [
+      showBoundImageCalls,
       guardTerminalAnswer,
       smoothStream({ delayInMs: 6, chunking: new Intl.Segmenter(undefined, { granularity: "word" }) }),
       endsWhenStopped(signal),
@@ -468,6 +521,7 @@ async function openChatAnswer(params: ChatAnswer) {
         await persistChatResponse({
           // Ended by a stop, whether or not the stream got as far as saying so.
           input, conversation, responseMessage, isAborted: isAborted || signal.aborted, generationFailed: generationFailed || terminalEvidenceMissing, skippedTool, thinking: thinkingClock.report(),
+          answeredBy: !awaitsDecision(responseMessage) && completedTurn?.outcome.finishReason === "stop" ? activeRef : undefined,
           unavailableTools: params.unavailableTools, scheduled,
           runId: params.runId,
           contextReport: contextReport(),
@@ -487,12 +541,7 @@ async function openChatAnswer(params: ChatAnswer) {
       }
       await foldWrites;
       // Runs after the answer is saved, and nothing here waits for it.
-      if (!isAborted && !signal.aborted && !persistenceFailed && (body.mode ?? "chat") === "chat") void compactAfterTurn({ chatId: chat.id, modelRef,
-        conversation: () => {
-          if (activeRef !== modelRef) return null;
-          const sent = stepContext.conversationSent(lastStepText);
-          return sent ? { system: systemPrompt, tools, ...sent } : null;
-        } });
+      if (!isAborted && !signal.aborted && !persistenceFailed && (body.mode ?? "chat") === "chat") void compactAfterTurn({ chatId: chat.id, modelRef });
     },
   });
 }

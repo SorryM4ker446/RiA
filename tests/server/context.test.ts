@@ -48,8 +48,8 @@ test("long histories retain the active turn and bounded excerpts without base64"
   assert.ok(context.omittedMessages > 0);
   assert.equal(context.messages[0].role, "user");
   assert.deepEqual(context.messages.slice(-2), messages.slice(-2));
-  assert.ok(context.historyExcerpt.length < 1150);
-  assert.equal(context.historyExcerpt.includes("PRIVATE_IMAGE"), false);
+  assert.ok(context.historyGap().text.length < 1150);
+  assert.equal(context.historyGap().text.includes("PRIVATE_IMAGE"), false);
 });
 
 test("approval metadata survives storage and reloading", () => {

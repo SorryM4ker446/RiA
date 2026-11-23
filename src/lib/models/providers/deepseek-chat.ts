@@ -22,7 +22,7 @@ import { createEventSourceResponseHandler, postJsonToApi } from "@ai-sdk/provide
  *    usage-only chunk, and reports cache hits separately.
  *
  * A fourth one applies to input: images travel as OpenAI-compatible
- * `image_url` blocks carrying a data URL, in user messages only.
+ * `image_url` blocks carrying a data URL in user and tool messages.
  *
  * Sources, verified 2026-09-28:
  *   https://api-docs.deepseek.com/api/create-chat-completion/
@@ -249,9 +249,17 @@ function toImageUrl(part: { mediaType: string; data: unknown }): string {
  * `{"type":"text","value":"…"}` as the tool message body, which the model
  * would read as the literal result.
  */
-function toolResultContent(output: LanguageModelV3ToolResultOutput): string {
+function toolResultContent(output: LanguageModelV3ToolResultOutput): string | Record<string, unknown>[] {
   if (output.type === "text" || output.type === "error-text") return output.value;
   if (output.type === "json" || output.type === "error-json") return JSON.stringify(output.value ?? null);
+  if (output.type === "content") {
+    const parts: Record<string, unknown>[] = [];
+    for (const part of output.value) {
+      if (part.type === "text") parts.push({ type: "text", text: part.text });
+      if (part.type === "image-data") parts.push({ type: "image_url", image_url: { url: toImageUrl(part) } });
+    }
+    return parts.some(part => part.type === "image_url") ? parts : parts.map(part => String(part.text)).join("\n");
+  }
   // A denied execution carries a reason rather than a result. It still has to
   // reach the model as text, otherwise the next turn sees an empty tool answer.
   return output.type === "execution-denied" ? `Tool execution was denied${output.reason ? `: ${output.reason}` : "."}` : "";
@@ -392,7 +400,7 @@ function createDeepSeekChatModel(options: { modelId: string; getApiKey: () => st
       const { body } = toRequestBody(options.modelId, callOptions, carriesTools, defaultThinking);
       const { value, responseHeaders } = await post(body, callOptions.abortSignal, true);
       return {
-        stream: streamResponse({ source: value as ReadableStream<unknown>, modelId: options.modelId, warnings: [] }),
+        stream: streamResponse({ source: value as ReadableStream<unknown>, warnings: [] }),
         request: { body },
         response: { headers: responseHeaders },
       };
@@ -413,12 +421,12 @@ function createJsonResponseHandler() {
 
 function streamResponse(options: {
   source: ReadableStream<unknown>;
-  modelId: string;
   warnings: SharedV3Warning[];
 }): ReadableStream<LanguageModelV3StreamPart> {
-  const { source, modelId, warnings } = options;
+  const { source, warnings } = options;
   const reader = source.getReader();
   let responseId: string | undefined;
+  let responseModel: string | undefined;
   let textOpen = false;
   let reasoningOpen = false;
   let usage: LanguageModelV3Usage | undefined;
@@ -440,9 +448,14 @@ function streamResponse(options: {
     }
     const parsed = chunk.data;
     let emitted = 0;
-    // The id arrives with the first chunk, so the metadata is emitted then.
-    // Announcing it twice would give the consumer two responses to join.
-    if (parsed.id && !responseId) { responseId = parsed.id; controller.enqueue({ type: "response-metadata", id: responseId, modelId: parsed.model ?? modelId, timestamp: new Date() }); emitted += 1; }
+    const id = responseId ? undefined : parsed.id ?? undefined;
+    const model = responseModel ? undefined : parsed.model ?? undefined;
+    if (id || model) {
+      responseId ??= id;
+      responseModel ??= model;
+      controller.enqueue({ type: "response-metadata", ...(id ? { id, timestamp: new Date() } : {}), ...(model ? { modelId: model } : {}) });
+      emitted += 1;
+    }
     if (parsed.usage) usage = toUsage(parsed.usage);
     const choice = parsed.choices[0];
     if (!choice) return emitted;

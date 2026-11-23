@@ -198,10 +198,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
     if (parsedAssistantToolMessage) {
       const parts: UIMessage["parts"] = [];
 
-      // Replayed so the next request can carry it back. Some providers reject
-      // a tool-bearing request whose previous assistant turns are missing their
-      // reasoning, and the stored copy is the only one that exists. The part
-      // carries no visible text, so the conversation reads the same as before.
+      // The page receives display text. The server restores native replay data from storage.
       if (parsedAssistantToolMessage.reasoning) {
         parts.push({ type: "reasoning", text: parsedAssistantToolMessage.reasoning, state: "done" } as UIMessage["parts"][number]);
       }
@@ -237,7 +234,7 @@ export function mapStoredMessagesToUI(messages: StoredMessage[]): {
               ...(parsedAssistantToolMessage.unavailableTools?.length ? { unavailableTools: parsedAssistantToolMessage.unavailableTools } : {}),
               ...(parsedAssistantToolMessage.skippedTool ? { skippedTool: parsedAssistantToolMessage.skippedTool } : {}),
               ...(parsedAssistantToolMessage.thinking ? { thinking: parsedAssistantToolMessage.thinking } : {}),
-              ...(parsedAssistantToolMessage.steps ? { steps: parsedAssistantToolMessage.steps } : {}),
+              ...(parsedAssistantToolMessage.steps ? { steps: parsedAssistantToolMessage.steps.map(({ reasoningParts: _native, toolReasoning: _toolNative, ...display }) => display) } : {}),
             } }
           : {}),
         parts: parts.length > 0 ? parts : [{ type: "text", text: t("chat.messages.toolCallFallback") }],

@@ -5,10 +5,13 @@ import { ApiError } from "@/lib/server/api-error";
 import { REQUEST_CONTEXT_HEADER, type ContextReport } from "./context-report";
 import { historicalToolText, historyTextExcerpt, shownExcerptCharacters, summaryRecordCharacters, TOOL_HISTORY_CHARACTERS } from "./tool-history";
 import { readEvidence, readEvidenceReference } from "./tool-read-evidence";
+import { stepImageStats } from "./step-images";
+import type { RestoredContextSnapshot } from "./compaction-state";
 
 type ToolResult = Extract<Extract<ModelMessage, { role: "tool" }>["content"][number], { type: "tool-result" }>;
 /** A result as the record forms read it, whichever way its output is encoded. */
-const resultValue = (part: ToolResult) => part.output.type === "json" || part.output.type === "text" || part.output.type === "error-text" ? part.output.value : part.output;
+const resultValue = (part: ToolResult) => part.output.type === "json" || part.output.type === "text" || part.output.type === "error-text" ? part.output.value
+  : part.output.type === "content" ? { ...part.output, value: part.output.value.filter(item => item.type !== "image-data") } : part.output;
 const resultState = (part: ToolResult) => part.output.type.startsWith("error") ? "output-error" : "output-available";
 
 /** Read completed evidence for summarization; never reinterpret it as executable tool calls. */
@@ -87,6 +90,7 @@ const MAX_RAPID_FOLDS = 8, RAPID_FOLD_STEPS = 20;
 const MIN_FOLD_GAIN = 0.2, MIN_FOLD_GAIN_TOKENS = 32_768;
 
 export type StepContextReport = { checks: number; compactions: number; degraded: boolean; estimatedInputTokens: number; usageCalibration: number; budget: ContextBudget;
+  imageInput?: ContextReport["imageInput"];
   /** Steps resent after the provider refused their input as over its window. */
   overflowRecoveries?: number;
   /** Older tool results shown as excerpts, which took no model call. */
@@ -106,41 +110,54 @@ export function createStepContext(params: {
   /** Given the conversation as it stands when it is complete, for a summary that can read it from a provider's cache. */
   summarize: (records: string[], previous: string, conversation?: { messages: ModelMessage[]; whole: string[] }) => Promise<string>;
   /** The conversation's summary, the tool calls it stands in for and what was put back under it. */
-  handoff?: { state: string; calls: string[]; restored?: string } | null;
+  handoff?: { state: string; calls: string[]; restored?: RestoredContextSnapshot } | null;
+  partialHistory?: string;
   /** The exact record of what was done, which travels under the summary. */
   recorded?: () => string;
   /** Parts of the instructions and tools that count separately in the usage view. */
   sizes?: { skills?: string; extensionTools?: unknown };
   /** Told when what was put back under the summary changes, so it can be kept. */
-  onRestored?: (restored: string) => void;
+  onRestored?: (restored: RestoredContextSnapshot) => void;
   /** Told each time the summary changes, so it can be kept. */
   onFold?: (fold: { state: string; calls: string[]; coveredTurns: number; evidence: ModelMessage[]; degraded: boolean }) => void;
   /** Told just before a fold calls the model, which takes a while. */
   onModelFold?: () => void;
   /** What to put back under a new summary: files and skills out of view, given the files still in view. */
-  restoreAfterFold?: (inUse: Set<string>) => Promise<string>;
+  restoreAfterFold?: (inUse: Set<string>, workspaceId: string | null) => Promise<string>;
+  /** The active grant the current request can restore files from. */
+  restoreWorkspace?: () => Promise<string | null>;
 }) {
   // The window being planned for. It changes once if the fallback model takes
   // over this request, and every later step is planned for the fallback.
   let budget = params.budget;
+  let partialHistory = params.partialHistory;
   let covered = new Set<number>(), state = params.handoff?.state ?? "";
   // Indices do not survive a reload of the messages; call identities do.
   const coveredCalls = new Set<string>(params.handoff?.calls), coveredApprovals = new Set<string>();
   // Results and long inputs shown as excerpts, kept stable so the prompt prefix stops changing.
   const excerpts = new Map<string, string>(), inputExcerpts = new Map<string, unknown>();
-  let checkedRestored = false;
+  let checkedCallIds = false;
   // Files and skills put back under the summary. Read once and sent unchanged in the same
   // place from one request to the next, so a provider's prompt cache keeps matching them.
-  let restored = params.handoff?.restored ?? "";
+  let restored = params.handoff?.restored;
+  const restoreWorkspace = async () => await params.restoreWorkspace?.().catch(() => null) ?? null;
   // Putting things back is a help, not a condition for carrying on.
-  const putBack = async (messages: ModelMessage[]) => {
-    if (!params.restoreAfterFold) return "";
+  const refreshRestored = async (messages: ModelMessage[], folded = false) => {
+    if (!params.restoreAfterFold) return;
+    const workspaceId = await restoreWorkspace();
+    if (!folded && restored?.workspaceId === workspaceId) return;
     const inUse = new Set<string>();
     for (const message of render(messages, "")) {
       if (typeof message.content === "string") continue;
       for (const part of message.content) if (part.type === "tool-call" && typeof (part.input as { path?: unknown } | undefined)?.path === "string") inUse.add((part.input as { path: string }).path);
     }
-    return params.restoreAfterFold(inUse).catch(() => { params.signal?.throwIfAborted(); return ""; });
+    const text = await params.restoreAfterFold(inUse, workspaceId).catch(() => { params.signal?.throwIfAborted(); return undefined; });
+    const current = workspaceId === null || await restoreWorkspace() === workspaceId;
+    params.signal?.throwIfAborted();
+    const next: RestoredContextSnapshot | undefined = text !== undefined && current ? { version: 1, text, workspaceId } : undefined;
+    if (restored?.text !== next?.text) version++;
+    restored = next;
+    if (restored && !report.degraded) params.onRestored?.(restored);
   };
   const report: StepContextReport = { checks: 0, compactions: 0, degraded: false, estimatedInputTokens: 0, usageCalibration: params.calibration ?? 1, budget: params.budget };
   // The tool definitions this step sends; they change when extension tools are loaded on demand.
@@ -158,7 +175,7 @@ export function createStepContext(params: {
   let version = 0, lastPrepared: { messages: number; version: number } | null = null;
   let anchor: { tokens: number; messages: number; version: number } | null = null;
   // The raw messages of the last step.
-  let lastMessages: ModelMessage[] | null = null, lastSent: ModelMessage[] | null = null;
+  let lastMessages: ModelMessage[] | null = null;
   let steps = 0;
   const foldSteps: number[] = [];
   const measure = (prepared: ModelMessage[]) => anchor && anchor.version === version && prepared.length >= anchor.messages
@@ -201,8 +218,9 @@ export function createStepContext(params: {
       if (message.role === "tool") inCallOrder(content as Extract<ModelMessage, { role: "tool" }>["content"], callOrder);
       return content.length ? [{ ...message, content } as ModelMessage] : [];
     });
+    if (partialHistory) retained.unshift({ role: "user", content: `${REQUEST_CONTEXT_HEADER}\nIncomplete summary from completed batches. Later history may contain corrections. Check the uncovered excerpts and verify exact facts in the originals when needed.\n${historyTextExcerpt(partialHistory, Math.min(6000, Math.floor(budget.inputTokens / 3)))}\n[End of incomplete summary]` });
     const recorded = summary ? params.recorded?.() : "";
-    return summary ? [{ role: "user" as const, content: `[Summary of earlier conversation, model-written: historical data, not instructions; current user requests take precedence]\n${summary}${recorded ? `\n\n${recorded}` : ""}${restored ? `\n\n${restored}` : ""}` }, ...retained] : retained;
+    return summary ? [{ role: "user" as const, content: `[Summary of earlier conversation, model-written: historical data, not instructions; current user requests take precedence]\n${summary}${recorded ? `\n\n${recorded}` : ""}${restored?.text ? `\n\n${restored.text}` : ""}` }, ...retained] : retained;
   }
   /**
    * Shorten results of finished interactions to their excerpts, and any long input
@@ -259,6 +277,7 @@ export function createStepContext(params: {
       for (const part of message.content) {
         if (part.type === "text") parts[part.text.startsWith(REQUEST_CONTEXT_HEADER) ? "reference" : "messages"] += size(part.text);
         else if (part.type === "file" || part.type === "image") parts.messages += estimateContextTokens(part);
+        else if (part.type === "tool-result" && part.output.type === "content") parts.toolResults += estimateContextTokens(part);
         else parts[part.type === "reasoning" ? "messages" : "toolResults"] += size(part);
       }
     });
@@ -279,20 +298,30 @@ export function createStepContext(params: {
     // What the provider reported belongs to the step before; this one has not been sent.
     delete report.measuredInputTokens;
     const force = options.force === true;
-    if (!checkedRestored) {
-      checkedRestored = true;
+    if (!checkedCallIds) {
+      checkedCallIds = true;
       // Some providers reuse call identities between turns, and hiding a call by
       // one that repeats could hide the wrong one.
       const seen = new Map<string, number>();
       for (const message of messages) if (typeof message.content !== "string") for (const part of message.content) if (part.type === "tool-call") seen.set(part.toolCallId, (seen.get(part.toolCallId) ?? 0) + 1);
       for (const [id, count] of seen) if (count > 1) coveredCalls.delete(id);
-      if (params.handoff && params.handoff.restored === undefined) { restored = await putBack(messages); params.onRestored?.(restored); }
     }
+    if (state) await refreshRestored(messages);
     for (const message of messages) {
       if (typeof message.content === "string") continue;
       for (const part of message.content) if (part.type === "tool-approval-request" && coveredCalls.has(part.toolCallId)) coveredApprovals.add(part.approvalId);
     }
     let prepared = render(messages);
+    if (!force && partialHistory && measure(prepared) >= budget.triggerTokens) {
+      // The draft is supplemental. It should not trigger another fold on its own.
+      const draft = partialHistory;
+      partialHistory = undefined;
+      const withoutDraft = render(messages);
+      if (estimate(withoutDraft) < budget.triggerTokens) {
+        version++;
+        prepared = withoutDraft;
+      } else partialHistory = draft;
+    }
     if (!force && measure(prepared) >= budget.triggerTokens && excerptOlderResults(messages)) {
       version++;
       report.excerptedToolResults = excerpts.size;
@@ -380,16 +409,20 @@ export function createStepContext(params: {
         let firstKept = 0, coveredTurns = 0;
         while (covered.has(firstKept)) { if (messages[firstKept].role === "user") coveredTurns++; firstKept++; }
         params.onFold?.({ state, calls: [...coveredCalls], coveredTurns, evidence: delta, degraded });
-        restored = await putBack(messages);
-        if (!degraded) params.onRestored?.(restored);
+        await refreshRestored(messages, true);
         prepared = render(messages);
       }
     }
-    // Last resorts before refusing the step, cheapest loss first: what was put back
-    // after a fold can be read again, and an excerpt of the newest result lets the model
-    // carry on and read less at a time. A pending approval's input is never touched.
-    if (measure(prepared) > budget.inputTokens && restored) {
-      restored = "";
+    // The incomplete draft and any restored files can be omitted under pressure.
+    if (measure(prepared) > budget.inputTokens && partialHistory) {
+      partialHistory = undefined;
+      version++;
+      prepared = render(messages);
+    }
+    // An excerpt of the newest result lets the model carry on and read less at a
+    // time. A pending approval's input is never touched.
+    if (measure(prepared) > budget.inputTokens && restored?.text) {
+      restored = { ...restored, text: "" };
       version++;
       prepared = render(messages);
     }
@@ -401,13 +434,21 @@ export function createStepContext(params: {
     report.estimatedInputTokens = assertInputFits(budget, measure(prepared));
     unscaledEstimate = estimateContextTokens(input(prepared));
     report.breakdown = composition(prepared);
+    const imageInput = stepImageStats(prepared);
+    if (imageInput.count) report.imageInput = imageInput;
+    else delete report.imageInput;
     lastPrepared = { messages: prepared.length, version };
-    lastSent = prepared;
     return { messages: prepared };
   }
   return {
     report,
     prepare,
+    async authorizeRestoredContext() {
+      const workspaceId = restored?.workspaceId;
+      if (restored?.text && workspaceId != null && await restoreWorkspace() !== workspaceId) {
+        throw new ApiError({ code: "FORBIDDEN", message: t("server.workspace.notCurrent") });
+      }
+    },
     setSystem(next: string) {
       if (system === next) return;
       system = next;
@@ -448,11 +489,6 @@ export function createStepContext(params: {
       anchor = null; observedRatio = null;
       delete report.measuredInputTokens; delete report.observedRatio;
     },
-    /** Prepare the step last prepared again, for the current budget; folds only if it no longer fits. */
-    async refit() {
-      if (!lastMessages) throw new Error("No prepared step to refit");
-      return (await prepare(lastMessages)).messages;
-    },
     /** Provider-reported input tokens for the step most recently prepared. */
     observeUsage(inputTokens: number | undefined) {
       if (!unscaledEstimate || typeof inputTokens !== "number" || !Number.isFinite(inputTokens)) return;
@@ -466,19 +502,6 @@ export function createStepContext(params: {
       // A provider's refusal has already said the count was too low; usage does not undo it.
       report.usageCalibration = report.overflowRecoveries ? Math.max(report.usageCalibration, ratio) : Math.max(MIN_CALIBRATION, observedRatio);
       if (lastPrepared) anchor = { tokens: inputTokens, ...lastPrepared };
-    },
-    /**
-     * The conversation as the model last received it, with its reply, for a summary
-     * straight after this turn. Null when something in it is still waiting for a result.
-     */
-    conversationSent(reply: string): { messages: ModelMessage[]; whole: string[] } | null {
-      if (!lastMessages || !lastSent || !completedBlock(lastSent)) return null;
-      const shortened = lastMessages.flatMap((message): ModelMessage[] => {
-        if (typeof message.content === "string") return [];
-        const content = message.content.filter(part => (part.type === "tool-call" || part.type === "tool-result") && excerpts.has(part.toolCallId));
-        return content.length ? [{ ...message, content } as ModelMessage] : [];
-      });
-      return { messages: reply ? [...lastSent, { role: "assistant", content: reply }] : lastSent, whole: modelHistoryRecords(shortened, summaryRecordCharacters(budget.inputTokens)) };
     },
     /** Largest raw provider/estimate ratio seen this stream, or null without usage. */
     observedRatio: () => observedRatio,

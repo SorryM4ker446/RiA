@@ -18,8 +18,13 @@ function fitted(text: string, tokens: number) {
 
 type RestoredFile = SummaryState["files"][number];
 
-/** Most recently modified first; among files changed at the same moment, the last one used. */
-async function mostRecentlyModified(files: RestoredFile[], signal?: AbortSignal) {
+function namesFile(request: string, file: RestoredFile) {
+  const path = file.path.replaceAll("\\", "/").replace(/[.*+?^{}$()|[\]\\]/g, "\\$&");
+  return new RegExp("(?:^|[^\\p{L}\\p{N}_./-])(?<!\\b[a-z]:)" + path + "(?=$|[^\\p{L}\\p{N}_./-]|\\.(?:\\s|$))", "iu").test(request);
+}
+
+/** Most recently modified first, with last use breaking ties. */
+async function selectFiles(files: RestoredFile[], signal?: AbortSignal) {
   const dated = await Promise.all(files.map(async (file, order) => {
     const modifiedAt = await projectFileModifiedAt(file, signal).catch(() => null);
     return modifiedAt === null ? null : { file, order, modifiedAt };
@@ -28,9 +33,9 @@ async function mostRecentlyModified(files: RestoredFile[], signal?: AbortSignal)
   return dated.filter(item => item !== null).sort((a, b) => b.modifiedAt - a.modifiedAt || b.order - a.order).slice(0, MAX_FILES).map(item => item.file);
 }
 
-async function fileLines(files: RestoredFile[], room: { tokens: number }, seen: RestoredFile[], signal?: AbortSignal) {
+async function fileLines(files: RestoredFile[], room: { tokens: number }, seen: RestoredFile[], signal?: AbortSignal, asOf = "as it was when this summary was written") {
   const lines: string[] = [];
-  for (const file of await mostRecentlyModified(files, signal)) {
+  for (const file of files) {
     try {
       const read = await readProjectFile({ grantId: file.grantId, path: file.path, startLine: 1, lineCount: 2000 }, signal);
       const content = read.lines.map(line => line.text).join("\n");
@@ -38,7 +43,7 @@ async function fileLines(files: RestoredFile[], room: { tokens: number }, seen: 
       if (read.nextLine === null && size <= Math.min(FILE_TOKENS, room.tokens)) {
         room.tokens -= size;
         seen.push({ ...file, hash: read.hash });
-        lines.push(`File ${file.path} as it was when this summary was written:\n${content}`);
+        lines.push(`File ${file.path} ${asOf}:\n${content}`);
       } else lines.push(`Referenced file: ${file.path} (too large to include; read it again if needed)`);
     } catch (error) {
       signal?.throwIfAborted();
@@ -47,6 +52,14 @@ async function fileLines(files: RestoredFile[], room: { tokens: number }, seen: 
     }
   }
   return lines;
+}
+
+/** Recover explicitly referenced evidence when the summary call allowance is exhausted. */
+export async function restoreReferencedFiles(params: { files: RestoredFile[]; workspaceId: string; request: string; inputTokens: number; signal?: AbortSignal }) {
+  const request = params.request.replaceAll("\\", "/");
+  const files = params.files.filter(file => file.grantId === params.workspaceId && namesFile(request, file)).slice(-MAX_FILES).reverse();
+  const lines = await fileLines(files, { tokens: Math.min(1000, Math.floor(params.inputTokens * RESTORED_SHARE)) }, [], params.signal, "as read for this request");
+  return lines.join("\n\n");
 }
 
 async function skillLines(packageIds: string[], room: { tokens: number }, signal?: AbortSignal) {
@@ -75,7 +88,7 @@ export async function restoredContext(params: { state: SummaryState; inUse: Set<
   const room = { tokens: Math.floor(params.inputTokens * RESTORED_SHARE) };
   const seen: RestoredFile[] = [];
   const files = params.allowFiles ? params.state.files.filter(file => file.grantId === params.workspaceId && !params.inUse.has(file.path)) : [];
-  const fileText = files.length ? await fileLines(files, room, seen, params.signal) : [];
+  const fileText = files.length ? await fileLines(await selectFiles(files, params.signal), room, seen, params.signal) : [];
   const skillText = params.allowSkills && params.state.skills.length ? await skillLines(params.state.skills, room, params.signal) : [];
   const lines = [...fileText, ...skillText];
   return { text: lines.length ? `Files and skills in use before the summary of earlier conversation:\n\n${lines.join("\n\n")}` : "", seen };

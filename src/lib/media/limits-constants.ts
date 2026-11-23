@@ -11,10 +11,15 @@
  * second dot makes it skip the implicit `.ts` resolution.
  */
 export const MEDIA_LIMITS = {
-  attachmentCount: 4,
+  attachmentCount: 6,
   attachmentBytes: 8 * 1024 * 1024,
-  totalAttachmentBytes: 20 * 1024 * 1024,
-  uploadBodyBytes: 21 * 1024 * 1024,
+  totalAttachmentBytes: 24 * 1024 * 1024,
+  uploadBodyBytes: 25 * 1024 * 1024,
+  referenceCount: 4,
+  referenceBytes: 20 * 1024 * 1024,
+  historyAttachmentCount: 8,
+  historyAttachmentBytes: 32 * 1024 * 1024,
+  modelImageEncodedBytes: 44 * 1024 * 1024,
   jsonBodyBytes: 2 * 1024 * 1024,
   generatedImageBytes: 20 * 1024 * 1024,
   generatedVideoBytes: 100 * 1024 * 1024,

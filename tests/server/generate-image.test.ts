@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { after, beforeEach, test, type TestContext } from "node:test";
-import type { LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import type { ImageModelV3CallOptions, LanguageModelV3StreamPart } from "@ai-sdk/provider";
 import type { Prisma } from "@prisma/client";
 import type { ModelMessage, UIMessage } from "ai";
+import { unlink } from "node:fs/promises";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
@@ -58,14 +59,14 @@ const ui = (id: string, text: string, files: { url: string; mediaType: string }[
 const request = (body: unknown) => new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie: localAccessCookie(), "content-type": "application/json" }, body: JSON.stringify(body) });
 
 /** A chat model that calls generateImage once with this input, then answers. */
-function drawsOnce(t: TestContext, input: Record<string, unknown>) {
+function drawsOnce(t: TestContext, input: Record<string, unknown>, toolName = "generateImage") {
   const prompts: string[] = [];
   t.mock.method(languageModel, "doStream", async (options: { prompt: unknown }) => {
     const step = prompts.length;
     prompts.push(JSON.stringify(options.prompt));
     return { stream: new ReadableStream<LanguageModelV3StreamPart>({ start(controller) {
       controller.enqueue({ type: "stream-start", warnings: [] });
-      if (step === 0) controller.enqueue({ type: "tool-call", toolCallId: `draw-${prompts.length}-${Date.now()}`, toolName: "generateImage", input: JSON.stringify(input) });
+      if (step === 0) controller.enqueue({ type: "tool-call", toolCallId: `draw-${prompts.length}-${Date.now()}`, toolName, input: JSON.stringify(input) });
       else { controller.enqueue({ type: "text-start", id: "a" }); controller.enqueue({ type: "text-delta", id: "a", delta: "Here it is." }); controller.enqueue({ type: "text-end", id: "a" }); }
       controller.enqueue({ type: "finish", finishReason: { unified: step === 0 ? "tool-calls" : "stop", raw: undefined }, usage });
       controller.close();
@@ -473,7 +474,7 @@ test("approving a picture requested by a scheduled turn still checks its backgro
   settings.rates[modelRefKey(FALLBACK_IMAGE_MODEL)] = { inputPerMillion: null, outputPerMillion: null, perRequest: 0.03 };
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
   const chat = await db.chat.create({ data: { title: "Picture task needs approval", approvalRule: "ask" } });
-  const input = await storage.createMediaAsset({ bytes: testPng, kind: "generated-image", mediaType: "image/png" });
+  const input = await storage.createMediaAsset({ bytes: testPng, kind: "generated-image", mediaType: "image/png", sourceChatId: chat.id });
   const reviewSources: string[] = [];
   t.mock.method(languageModel, "doGenerate", async () => {
     reviewSources.push(modelCallSource());
@@ -514,8 +515,8 @@ test("a later chat turn edits a large generated picture using a reference-capabl
   settings.library = settings.library.map(item => item.modelId === IMAGE_MODEL_REF.modelId ? { ...item, endpointImageInput: null } : item);
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
   await db.modelRequest.deleteMany({ where: { source: "media" } });
-  const prompts = drawsOnce(t, { prompt: "The same cat on the same sofa, at night", referenceImages: [id] });
-  const response = await route.POST(request({ chatId: chat.id, model: TEXT_ONLY, messages: [ui("second", "Now make it night")] }));
+  const prompts = drawsOnce(t, { prompt: "The same cat on the same sofa, at night" });
+  const response = await route.POST(request({ chatId: chat.id, model: TEXT_ONLY, messages: [ui("second", "Edit the previous picture to make the background night")] }));
   assert.equal(response.status, 200, response.ok ? undefined : await response.text());
   await response.text();
   assert.match(prompts[0], new RegExp(id), "the earlier turn's result names the picture");
@@ -530,6 +531,246 @@ test("a later chat turn edits a large generated picture using a reference-capabl
   assert.deepEqual(await db.modelRequest.findMany({ where: { source: "media" }, select: { modelId: true, fallback: true, status: true } }), [
     { modelId: FALLBACK_IMAGE_MODEL.modelId, fallback: true, status: "success" },
   ]);
+});
+
+test("compressed history exposes references and sends only the requested original images in order", async t => {
+  const chat = await db.chat.create({ data: { title: "Image recall", approvalRule: "full" } });
+  const upload = await storage.createMediaAsset({ bytes: distinctPng(61), mediaType: "image/png", kind: "attachment" });
+  const toolPicture = await storage.createMediaAsset({ bytes: distinctPng(62), mediaType: "image/png", kind: "generated-image" });
+  const independent = await storage.createMediaAsset({ bytes: distinctPng(63), mediaType: "image/png", kind: "generated-image" });
+  const outside = await storage.createMediaAsset({ bytes: distinctPng(64), mediaType: "image/png", kind: "attachment" });
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Remember this plate", files: [{ url: mediaUrl(upload.id), mediaType: "image/png" }] }) });
+  await saveChatMessage({ chatId: chat.id, role: "assistant", content: encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "Chat output", tools: [{ toolName: "generateImage", toolCallId: "old-image", state: "output-available", input: { prompt: "Example" }, output: { mediaId: toolPicture.id } }] }) });
+  const boundary = await saveChatMessage({ chatId: chat.id, role: "assistant", content: encodeMediaMessage({ type: "image-result", assetId: independent.id, modelId: "test", text: "Image mode output" }) });
+  await db.chat.update({ where: { id: chat.id }, data: { summary: "[Task state v1]\nCollect the three inspection images.", summaryUpToMessageId: boundary.id, summaryRevision: 0 } });
+  const requested = [independent, upload, toolPicture];
+  const prompts = drawsOnce(t, { imageIds: [...requested.map(asset => asset.id), upload.id, outside.id] }, "readConversationHistory");
+  const response = await route.POST(request({ chatId: chat.id, messages: [ui("inspect-saved", "Read the labels in the saved images in my order")] }));
+  assert.equal(response.status, 200);
+  await wireText(response);
+  for (const asset of requested) assert.ok(prompts[0].includes(asset.id), "each source survives compaction as a reference");
+  assert.doesNotMatch(prompts[0], /image-data|data:image\//);
+  const pixels = requested.map((_, index) => distinctPng([63, 61, 62][index]).toString("base64"));
+  const indices = pixels.map(data => prompts[1].indexOf(data));
+  assert.ok(indices.every(index => index >= 0));
+  assert.deepEqual(indices, [...indices].sort((a, b) => a - b));
+  assert.equal(prompts[1].split(pixels[1]).length - 1, 1);
+  assert.ok(!prompts[1].includes(distinctPng(64).toString("base64")));
+  assert.match(prompts[1], /image unavailable in this conversation/);
+  assert.equal(providerState.imageCalls.length, 0);
+  const { row } = await savedAnswer(chat.id);
+  assert.ok(pixels.every(data => !row.content.includes(data)), "saved tool results only carry ids");
+});
+
+test("an ambiguous edit without a bound original reaches neither approval nor the image provider", async t => {
+  const chat = await db.chat.create({ data: { title: "Ambiguous edit", approvalRule: "ask" } });
+  const originals = await Promise.all([65, 66].map(num => storage.createMediaAsset({ bytes: distinctPng(num), mediaType: "image/png", kind: "attachment" })));
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Here are two plates", files: originals.map(item => ({ url: mediaUrl(item.id), mediaType: "image/png" })) }) });
+  drawsOnce(t, { prompt: "Make a blue version", operation: "create", referenceImages: [originals[0].id] });
+  await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("edit-which", "Edit the previous picture to be blue.")] })));
+  const { payload, row } = await savedAnswer(chat.id);
+  assert.equal(payload.tools[0].state, "output-available");
+  assert.match(row.content, /referenceRequired/);
+  assert.equal(providerState.imageCalls.length, 0);
+});
+
+test("the approved original is bound before review and cannot be replaced if it disappears", async t => {
+  const chat = await db.chat.create({ data: { title: "Review edit", approvalRule: "ask" } });
+  const original = await storage.createMediaAsset({ bytes: distinctPng(67), mediaType: "image/png", kind: "attachment" });
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Original plate", files: [{ url: mediaUrl(original.id), mediaType: "image/png" }] }) });
+  t.mock.method(languageModel, "doGenerate", async () => reply(verdict("ask", "请先确认本次改图。")));
+  drawsOnce(t, { prompt: "Edit the plate to be blue" });
+  await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("review-edit", "Edit the previous picture and make it blue.")] })));
+  const { messages } = await storedFromSummary(chat.id);
+  const pending = messages.at(-1)?.parts.find(item => item.type === "tool-generateImage" && "state" in item && item.state === "approval-requested");
+  assert.ok(pending && "input" in pending && "approval" in pending && pending.approval);
+  assert.deepEqual((pending.input as { referenceImages: string[] }).referenceImages, [original.id]);
+  assert.equal(providerState.imageCalls.length, 0);
+  await unlink(await storage.locateMediaAsset(original));
+  Object.assign(pending, { state: "approval-responded", approval: { ...pending.approval, approved: true } });
+  await wireText(await route.POST(request({ chatId: chat.id, messages })));
+  assert.equal(providerState.imageCalls.length, 0, "approval cannot turn a missing original into a new paid generation");
+});
+
+test("an image call refused before approval cannot run when reference support returns", async t => {
+  const chat = await db.chat.create({ data: { title: "Approval preflight", approvalRule: "ask" } });
+  const original = await storage.createMediaAsset({ bytes: distinctPng(81), kind: "attachment", mediaType: "image/png" });
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Original plate", files: [{ url: mediaUrl(original.id), mediaType: "image/png" }] }) });
+  const settings = await getModelPreferences();
+  settings.image.fallback = null;
+  const configure = async (endpointImageInput: boolean) => {
+    settings.library = settings.library.map(item => item.modelId === IMAGE_MODEL_REF.modelId ? { ...item, endpointImageInput } : item);
+    await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  };
+  let reviews = 0;
+  t.mock.method(languageModel, "doGenerate", async () => { reviews++; return reply(verdict("ask", "请确认。")); });
+  const text = "What is on the plate?";
+  const tools = await createChatToolSet({ chatId: chat.id, modelRef: CHAT_MODEL_REF, imageRequest: { text, files: [] } });
+  const needsApproval = tools.generateImage.needsApproval as Approval;
+  const options = { messages: [{ role: "user" as const, content: text }], toolCallId: "refused" };
+  const input = { prompt: "Color the plate blue", operation: "edit", referenceImages: [original.id] };
+  await configure(false);
+  assert.equal(await needsApproval(input, options), false);
+  await configure(true);
+  await assert.rejects(tools.generateImage.execute!(input, options), /can accept reference images/);
+  assert.equal(providerState.imageCalls.length, 0);
+  assert.equal(reviews, 0);
+  assert.equal(await needsApproval({ ...input }, options), true, "a new valid request still needs review");
+});
+
+test("editing the previous picture after compression binds the newest source even when the model nominates another", async t => {
+  const chat = await db.chat.create({ data: { title: "Previous plate", approvalRule: "full" } });
+  const [old, expected] = await Promise.all([82, 83].map(number => storage.createMediaAsset({ bytes: distinctPng(number), kind: "attachment", mediaType: "image/png" })));
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Older plate", files: [{ url: mediaUrl(old.id), mediaType: "image/png" }] }) });
+  const boundary = await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Newer plate", files: [{ url: mediaUrl(expected.id), mediaType: "image/png" }] }) });
+  await db.chat.update({ where: { id: chat.id }, data: { summary: "[Task state v1]\nTwo plate photographs.", summaryRevision: 0, summaryUpToMessageId: boundary.id } });
+  const prompts = drawsOnce(t, { prompt: "Color the plate blue", operation: "edit", referenceImages: [old.id] });
+  await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("edit-previous", "Edit the previous picture to be blue.")] })));
+  assert.ok(prompts[0].includes(expected.id));
+  assert.equal(providerState.imageCalls.length, 1);
+  assert.deepEqual(providerState.imageCalls[0].files.map(file => Buffer.from(file.data)), [distinctPng(83)]);
+});
+
+test("regenerating an image edit excludes the reply it is replacing from history and references", async t => {
+  const chat = await db.chat.create({ data: { title: "Replay plate edit", approvalRule: "full" } });
+  const original = await storage.createMediaAsset({ bytes: distinctPng(84), kind: "attachment", mediaType: "image/png" });
+  const previousOutput = await storage.createMediaAsset({ bytes: distinctPng(85), kind: "generated-image", mediaType: "image/png", sourceChatId: chat.id });
+  const file = { url: mediaUrl(original.id), mediaType: "image/png" };
+  const text = "Edit the previous picture to be blue.";
+  await saveChatMessage({ chatId: chat.id, role: "user", clientMessageId: "origin", content: encodePersistedUserMessage({ type: "user-message", text: "Source plate", files: [file] }) });
+  await saveChatMessage({ chatId: chat.id, role: "user", clientMessageId: "redo", content: text });
+  await saveChatMessage({ chatId: chat.id, role: "assistant", clientMessageId: "old-answer", content: encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "Done", tools: [{ toolName: "generateImage", toolCallId: "old-draw", state: "output-available", input: { prompt: "Blue plate" }, output: { mediaId: previousOutput.id } }] }) });
+  const messages = [ui("origin", "Source plate", [file]), ui("redo", text)];
+  const prompts = drawsOnce(t, { prompt: "Color the plate blue", operation: "edit" });
+  const replay = await route.POST(request({ chatId: chat.id, messages, trigger: "regenerate-message", messageId: "old-answer" }));
+  assert.equal(replay.status, 200);
+  await wireText(replay);
+  assert.ok(prompts[0].includes(original.id));
+  assert.ok(!prompts[0].includes(previousOutput.id));
+  assert.equal(providerState.imageCalls.length, 1);
+  assert.deepEqual(providerState.imageCalls[0].files.map(file => Buffer.from(file.data)), [distinctPng(84)]);
+
+  const { readConversationImages } = await import("@/lib/media/conversation-images");
+  const { getRegenerationSnapshot } = await import("@/lib/chat/store");
+  const { from } = await getRegenerationSnapshot(chat.id, "redo");
+  const scope = { through: from, generated: new Set<string>() };
+  assert.deepEqual((await readConversationImages(chat.id, [original.id, previousOutput.id], scope)).images.map(image => image.available), [true, false]);
+  const { row } = await savedAnswer(chat.id);
+  const generatedId = (JSON.parse(row.content.slice(row.content.indexOf(":") + 1)).tools[0].output.mediaId) as string;
+  scope.generated.add(generatedId);
+  assert.equal((await readConversationImages(chat.id, [generatedId], scope)).images[0].available, true);
+  const tools = await createChatToolSet({ chatId: chat.id, modelRef: CHAT_MODEL_REF, imageScope: scope, imageRequest: { text: "Retouch a plate", files: [] } });
+  const supplied = { prompt: "Make a blue plate", operation: "edit", referenceImages: [previousOutput.id] };
+  const options = { messages: [], toolCallId: "discarded-output" };
+  assert.equal(await (tools.generateImage.needsApproval as Approval)(supplied, options), false);
+  await assert.rejects(tools.generateImage.execute!(supplied, options), /reference images are unavailable/);
+  assert.equal(providerState.imageCalls.length, 1);
+});
+
+test("an implicit edit with no selected original cannot degrade to paid text-to-image", async t => {
+  const chat = await db.chat.create({ data: { title: "Implicit edit", approvalRule: "full" } });
+  const original = await storage.createMediaAsset({ bytes: distinctPng(86), kind: "attachment", mediaType: "image/png" });
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "请记住铭牌上的编号", files: [{ url: mediaUrl(original.id), mediaType: "image/png" }] }) });
+  drawsOnce(t, { prompt: "Add a red circle in the bottom-right corner", operation: "create" });
+  const wire = await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("implicit", "右下角加个红圈，编号保持不变。")] })));
+  assert.match(wire, /referenceRequired/);
+  assert.equal(providerState.imageCalls.length, 0);
+  assert.equal(await db.modelRequest.count({ where: { source: "media", createdAt: { gte: chat.createdAt } } }), 0);
+});
+
+test("an explicit request for a new illustration works with unrelated pictures in history", async t => {
+  const chat = await db.chat.create({ data: { title: "New illustration", approvalRule: "full" } });
+  const original = await storage.createMediaAsset({ bytes: distinctPng(86), kind: "attachment", mediaType: "image/png" });
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "这是铭牌", files: [{ url: mediaUrl(original.id), mediaType: "image/png" }] }) });
+  drawsOnce(t, { prompt: "Illustration of an orange cat", operation: "create" });
+  await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("new-illustration", "给我一张橘猫的插画。")] })));
+  assert.equal(providerState.imageCalls.length, 1);
+  assert.equal(providerState.imageCalls[0].files?.length ?? 0, 0);
+});
+
+test("a generation request that refers to an earlier image still requires its original", async t => {
+  const chat = await db.chat.create({ data: { title: "Missing previous picture", approvalRule: "full" } });
+  drawsOnce(t, { prompt: "An illustration of an orange cat", operation: "create" });
+  const wire = await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("new-version", "Generate a new version of the last one.")] })));
+  assert.match(wire, /referenceRequired/);
+  assert.equal(providerState.imageCalls.length, 0);
+});
+
+test("editing only the second attachment sends exactly that attachment", async t => {
+  const chat = await db.chat.create({ data: { title: "Select second plate", approvalRule: "full" } });
+  const [first, second] = await Promise.all([87, 88].map(number => storage.createMediaAsset({ bytes: distinctPng(number), kind: "attachment", mediaType: "image/png" })));
+  drawsOnce(t, { prompt: "Color the plate blue", operation: "edit", referenceImages: [second.id] });
+  const files = [first, second].map(asset => ({ url: mediaUrl(asset.id), mediaType: "image/png" }));
+  await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("select-second", "把第二张图改成蓝色，只改这一张。", files)] })));
+  assert.equal(providerState.imageCalls.length, 1);
+  assert.deepEqual(providerState.imageCalls[0].files.map(file => Buffer.from(file.data)), [distinctPng(88)]);
+});
+
+test("bound references over the combined limit are rejected before a media attempt", async t => {
+  const chat = await db.chat.create({ data: { title: "Reference byte limit", approvalRule: "full" } });
+  const bytes = 7 * 1024 * 1024;
+  const originals = await Promise.all([89, 90, 91].map(number => {
+    const marker = distinctPng(number);
+    return storage.createMediaAsset({ bytes: Buffer.concat([marker, Buffer.alloc(bytes - marker.length)]), kind: "attachment", mediaType: "image/png" });
+  }));
+  const files = originals.map(asset => ({ url: mediaUrl(asset.id), mediaType: "image/png" }));
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Three source plates", files }) });
+  drawsOnce(t, { prompt: "Combine the three plates", operation: "edit", referenceImages: originals.map(asset => asset.id) });
+  const wire = await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("exceed-ref-budget", "Use all three reference pictures to make a collage.")] })));
+  assert.match(wire, /references exceed the image input limits/);
+  assert.equal(providerState.imageCalls.length, 0);
+  assert.equal(await db.modelRequest.count({ where: { source: "media", createdAt: { gte: chat.createdAt } } }), 0);
+});
+
+test("approval and image-provider fallback keep the original even when a different picture arrives", async t => {
+  const chat = await db.chat.create({ data: { title: "Approved fallback", approvalRule: "ask" } });
+  const [original, newer] = await Promise.all([92, 93].map(number => storage.createMediaAsset({ bytes: distinctPng(number), kind: "attachment", mediaType: "image/png" })));
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "Source plate", files: [{ url: mediaUrl(original.id), mediaType: "image/png" }] }) });
+  const settings = await getModelPreferences();
+  settings.image.fallback = FALLBACK_IMAGE_MODEL;
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  t.mock.method(languageModel, "doGenerate", async () => reply(verdict("ask", "请确认原图。")));
+  drawsOnce(t, { prompt: "Color the previous picture blue." });
+  const proposal = await wireText(await route.POST(request({ chatId: chat.id, messages: [ui("approve-fallback", "Edit the previous picture and make it blue.")] })));
+  const { messages } = await storedFromSummary(chat.id);
+  const pending = messages.at(-1)?.parts.find(item => item.type === "tool-generateImage" && "state" in item && item.state === "approval-requested");
+  assert.ok(pending && "input" in pending && "approval" in pending && pending.approval);
+  assert.deepEqual((pending.input as { referenceImages: string[] }).referenceImages, [original.id]);
+  const displayed = proposal.split("\n").filter(line => line.startsWith("data: {")).map(line => JSON.parse(line.slice(6)))
+    .filter(event => event.type === "tool-input-available" && event.toolCallId === pending.toolCallId).at(-1);
+  assert.deepEqual(displayed?.input, pending.input, "the live approval shows the exact input the server saved");
+  assert.equal(providerState.imageCalls.length, 0);
+  await saveChatMessage({ chatId: chat.id, role: "user", content: encodePersistedUserMessage({ type: "user-message", text: "New plate", files: [{ url: mediaUrl(newer.id), mediaType: "image/png" }] }) });
+  const model = getImageModel();
+  const generate = model.doGenerate.bind(model);
+  const references: Buffer[][] = [];
+  t.mock.method(model, "doGenerate", async (options: ImageModelV3CallOptions) => {
+    references.push(options.files?.map(file => Buffer.from((file as { data: Uint8Array }).data)) ?? []);
+    if (references.length === 1) throw Object.assign(new Error("Unavailable"), { statusCode: 503 });
+    return generate(options);
+  });
+  Object.assign(pending, { state: "approval-responded", approval: { ...pending.approval, approved: true } });
+  await wireText(await route.POST(request({ chatId: chat.id, messages })));
+  assert.deepEqual(references, [[distinctPng(92)], [distinctPng(92)]]);
+  assert.deepEqual((await db.modelRequest.findMany({ where: { source: "media", createdAt: { gte: chat.createdAt } }, orderBy: { createdAt: "asc" } })).map(row => [row.modelId, row.status]), [[IMAGE_MODEL_REF.modelId, "error"], [FALLBACK_IMAGE_MODEL.modelId, "success"]]);
+});
+
+
+test("history image reads share the attachment budget and a text-only model receives only the receipt", async () => {
+  const { prepareStepImages, stepImageStats } = await import("@/lib/chat/step-images");
+  const chat = await db.chat.create({ data: { title: "Picture budget" } });
+  const picture = await storage.createMediaAsset({ bytes: distinctPng(68), kind: "generated-image", mediaType: "image/png", sourceChatId: chat.id });
+  const messages: ModelMessage[] = [{ role: "user", content: "Read the plate" }, { role: "tool", content: [{ type: "tool-result", toolCallId: "read", toolName: "readConversationHistory", output: { type: "json", value: { kind: "conversation-images", images: [{ mediaId: picture.id, available: true }] } } }] }];
+  const options = { chatId: chat.id, inputTokens: 32_000, supportsImages: true };
+  const actual = await prepareStepImages(messages, options);
+  assert.equal(stepImageStats(actual).count, 1);
+  assert.ok(stepImageStats(actual).visualTokens > 0);
+  const textOnly = await prepareStepImages(messages, { ...options, supportsImages: false });
+  assert.equal(stepImageStats(textOnly).count, 0);
+  assert.match(JSON.stringify(textOnly), /this model cannot see images/);
+  const noRoom = await prepareStepImages(messages, { ...options, historyAttachments: { count: MEDIA_LIMITS.historyAttachmentCount, bytes: 0 } });
+  assert.equal(stepImageStats(noRoom).count, 0);
+  assert.match(JSON.stringify(noRoom), /remaining media budget/);
 });
 
 test("a reference that is not a stored picture fails the call, without reaching the image model", async () => {

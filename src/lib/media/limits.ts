@@ -1,15 +1,7 @@
 import { t } from "@/lib/locale";
+import { MEDIA_LIMITS } from "./limits-constants";
 
-export const MEDIA_LIMITS = {
-  attachmentCount: 4,
-  attachmentBytes: 8 * 1024 * 1024,
-  totalAttachmentBytes: 20 * 1024 * 1024,
-  uploadBodyBytes: 21 * 1024 * 1024,
-  jsonBodyBytes: 2 * 1024 * 1024,
-  generatedImageBytes: 20 * 1024 * 1024,
-  generatedVideoBytes: 100 * 1024 * 1024,
-  orphanGraceMs: 24 * 60 * 60 * 1000,
-} as const;
+export { MEDIA_LIMITS } from "./limits-constants";
 
 export const IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 export const DOCUMENT_ATTACHMENT_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"] as const;
@@ -31,7 +23,9 @@ export function attachmentMediaType(file: { type: string; name?: string }) {
 
 /** Only a stored asset's server-owned kind can grant the generated-image size allowance. */
 export function attachmentValidationError(files: Array<{ size: number; type: string; name?: string; kind?: string }>, allowDocuments = false): string | null {
-  if (files.length > MEDIA_LIMITS.attachmentCount) return t("lib.media.tooManyAttachments");
+  const count = allowDocuments ? MEDIA_LIMITS.attachmentCount : MEDIA_LIMITS.referenceCount;
+  const size = allowDocuments ? MEDIA_LIMITS.totalAttachmentBytes : MEDIA_LIMITS.referenceBytes;
+  if (files.length > count) return t(allowDocuments ? "lib.media.tooManyAttachments" : "server.attachment.tooManyImages");
   const types: readonly string[] = allowDocuments ? CHAT_ATTACHMENT_TYPES : IMAGE_MEDIA_TYPES;
   if (files.some((file) => !types.includes(allowDocuments ? attachmentMediaType(file) : file.type))) return t(allowDocuments ? "lib.media.unsupportedChatAttachmentType" : "lib.media.unsupportedAttachmentType");
   for (const file of files) {
@@ -39,6 +33,6 @@ export function attachmentValidationError(files: Array<{ size: number; type: str
     const limit = generated ? MEDIA_LIMITS.generatedImageBytes : MEDIA_LIMITS.attachmentBytes;
     if (file.size <= 0 || file.size > limit) return t(generated ? "lib.media.generatedImageAttachmentSize" : "lib.media.attachmentSize");
   }
-  if (files.reduce((sum, file) => sum + file.size, 0) > MEDIA_LIMITS.totalAttachmentBytes) return t("lib.media.totalAttachmentSize");
+  if (files.reduce((sum, file) => sum + file.size, 0) > size) return t(allowDocuments ? "lib.media.totalAttachmentSize" : "lib.media.referenceSize");
   return null;
 }

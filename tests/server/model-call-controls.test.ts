@@ -295,6 +295,41 @@ test("a cut-off tool call is never continued and continuations are bounded", asy
   assert.equal(parts.at(-1)!.finishReason!.unified, "length", "a still-incomplete answer keeps its length finish");
 });
 
+test("a one-attempt summary spends one admission even with a retryable error and a configured fallback", async () => {
+  const settings = await getModelPreferences();
+  settings.chat.fallback = { providerId: "openrouter", modelId: "google/gemini-3-flash-preview" };
+  await saveModelPreferences(settings);
+  const slowDown = Object.assign(new Error("rate limited"), { statusCode: 429, responseHeaders: { "Retry-After": "0" } });
+  let submissions = 0;
+  const provider = new MockLanguageModelV3({ doGenerate: async () => {
+    submissions++;
+    throw slowDown;
+  } });
+  const model = withModelCallSource("summary", () => observeLanguageModel(provider, CHAT_MODEL_REF, () => {
+    throw new Error("The fallback adapter must not be resolved");
+  }, { singleAttempt: true }));
+  await assert.rejects(async () => model.doGenerate({ prompt: userPrompt }), { message: slowDown.message });
+  assert.equal(submissions, 1);
+  const rows = await db.modelRequest.findMany({ select: { modelId: true, source: true, status: true, fallback: true } });
+  assert.deepEqual(rows, [{ modelId: CHAT_MODEL_REF.modelId, source: "summary", status: "error", fallback: false }]);
+});
+
+test("a retry checks access again before sending the prepared chat prompt", async () => {
+  const { ApiError } = await import("@/lib/server/api-error");
+  let authorized = true;
+  let submissions = 0;
+  const offline = new MockLanguageModelV3({ doStream: async () => {
+    submissions++;
+    authorized = false;
+    throw Object.assign(new Error("rate limited"), { statusCode: 429, responseHeaders: { "Retry-After": "0" } });
+  } });
+  const model = observeLanguageModel(offline, CHAT_MODEL_REF, () => offline, {
+    beforeSubmit: async () => { if (!authorized) throw new ApiError({ code: "FORBIDDEN", message: "Workspace changed." }); },
+  });
+  await assert.rejects(async () => model.doStream({ prompt: userPrompt }), { code: "FORBIDDEN" });
+  assert.equal(submissions, 1);
+});
+
 test("transient failures are retried after Retry-After, other failures are not, and background calls only without a money ceiling", async t => {
   // The waits between attempts are what Retry-After decides, so those are what is
   // checked: the call's total time also covers recording each attempt, which a

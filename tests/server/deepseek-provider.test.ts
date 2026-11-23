@@ -412,7 +412,24 @@ test("an image is inlined as the documented block shape", async () => {
   assert.equal(requests[1].body.messages[0].content, "只有文字");
 });
 
-test("an image outside a user message is dropped instead of failing the request", async () => {
+test("a tool image uses DeepSeek's multimodal tool content while preserving the call identity", async () => {
+  handler = () => textStream("已查看图片");
+  const model = createDeepSeekChatModel({ modelId: "deepseek-flash", getApiKey: () => "test-key", baseURL: deepSeekBaseURL() });
+  await collect((await model.doStream({
+    prompt: [
+      { role: "user", content: [{ type: "text", text: "看前面的图" }] },
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: "read-image", toolName: "readConversationHistory", input: { imageIds: ["saved-image"] } }] },
+      { role: "tool", content: [{ type: "tool-result", toolCallId: "read-image", toolName: "readConversationHistory", output: { type: "content", value: [
+        { type: "text", text: "Saved image" }, { type: "image-data", data: "iVBORw0KGgo=", mediaType: "image/png" },
+      ] } }] },
+    ],
+  })).stream);
+  assert.deepEqual(requests[0].body.messages.at(-1), { role: "tool", tool_call_id: "read-image", content: [
+    { type: "text", text: "Saved image" }, { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+  ] });
+});
+
+test("an image in an assistant message is dropped instead of failing the request", async () => {
   handler = () => textStream("好");
   const model = createDeepSeekChatModel({ modelId: "deepseek-flash", getApiKey: () => "test-key", baseURL: deepSeekBaseURL() });
   await collect((await model.doStream({
