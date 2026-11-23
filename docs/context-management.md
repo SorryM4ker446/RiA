@@ -356,6 +356,8 @@ can include the current contents of explicitly named files from earlier reads in
 active workspace, under a separate restore budget. This material is request-local,
 leaves the saved coverage boundary in place and
 yields to required context when space is tight.
+Each model submission checks the active grant for the restored file contents.
+After a workspace change, rebuilding the prompt keeps the draft and drops those contents.
 When a regular chat send switches to a smaller context window, the previous
 answer's actual model can write the older-turn handoff if the new model would
 likely need more than the remaining calls. The previous model must be available

@@ -20,7 +20,7 @@ import { getModelPreferences, modelInLibrary } from "@/lib/models/preferences";
 import { conversationCollections } from "@/lib/conversations/document-scope";
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
-import { createStepContext, withoutToolRecords } from "./step-context";
+import { createStepContext, withoutToolRecords, type PartialHistory } from "./step-context";
 import { createThinkingClock, thinkingRecordSchema } from "./thinking";
 import { summarizeWithInternalAgent, type CompactionAllowance } from "./task-summary";
 import { commitTurnFold, keepRestoredContext } from "./summary";
@@ -120,7 +120,7 @@ type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPro
   skillsPrompt?: string;
   historyAttachments?: { count: number; bytes: number };
   approvalMessage?: UIMessage;
-  partialHistory?: string;
+  partialHistory?: PartialHistory;
   /** The messages this request sent, and whether they and the summary leave nothing out. */
   foldHistory?: { messages: { id: string; role: string }[]; complete: () => boolean; revision: number };
   onModelFold?: () => void;

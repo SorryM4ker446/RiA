@@ -12,6 +12,7 @@ import { modelRefKey } from "@/lib/models/preferences-schema";
 import { getModelProvider } from "@/lib/models/providers";
 import { compactForRequest } from "@/lib/chat/compaction";
 import type { IncompleteSummary } from "@/lib/chat/summary";
+import type { PartialHistory } from "@/lib/chat/step-context";
 import { createCompactionAllowance } from "@/lib/chat/task-summary";
 import { t, tf } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
@@ -111,7 +112,7 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
       : "\nIf an exact earlier constraint, decision or result is needed and missing, ask the user to clarify it before proceeding.") : "");
     const canReadFiles = toolsEnabled && (!input.assistant || templateAllowsTool(input.assistant.tools, "readProjectFile"));
     const workspaceGrant = canReadFiles && (!input.isApprovalResume || incomplete) ? (await conversationWorkspace(conversation.chat.id))?.id : null;
-    let partialHistory: string | undefined;
+    let partialHistory: PartialHistory | undefined;
     if (incomplete && gap.incomplete) {
       const current = await db.chat.findUnique({ where: { id: conversation.chat.id }, select: { historyRevision: true, summaryRevision: true, summary: true, summaryUpToMessageId: true } });
       if (current?.historyRevision === incomplete.historyRevision) {
@@ -123,7 +124,7 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
             ? await restoreReferencedFiles({ files: incomplete.files, workspaceId: workspaceGrant, request, signal,
               inputTokens: contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]).inputTokens })
             : "";
-          partialHistory = files ? `Files read from the current workspace for this request:\n${files}\n\nDraft from earlier messages:\n${incomplete.draft}` : incomplete.draft;
+          partialHistory = { draft: incomplete.draft, ...(files && workspaceGrant ? { files: { text: files, workspaceId: workspaceGrant } } : {}) };
         }
       }
     }

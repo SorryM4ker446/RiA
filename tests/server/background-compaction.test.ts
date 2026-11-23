@@ -628,12 +628,29 @@ test("an optional summary draft does not push a fitting prompt into another fold
   const system = "system";
   const message: ModelMessage = { role: "user", content: "" };
   while (estimateContextTokens({ system, messages: [message] }) < budget.triggerTokens - 50) message.content += " evidence";
-  const manager = createStepContext({ budget, system, partialHistory: "PARTIAL-DRAFT ".repeat(150),
+  const manager = createStepContext({ budget, system, partialHistory: { draft: "PARTIAL-DRAFT ".repeat(150) },
     summarize: async () => { throw new Error("the draft must not trigger a new summary"); } });
   const { messages } = await manager.prepare([message]);
   assert.deepEqual(messages, [message]);
   assert.equal(manager.report.compactions, 0);
   assert.ok(manager.report.estimatedInputTokens < budget.triggerTokens);
+});
+
+test("a workspace switch after preparing a draft prevents submission of restored file contents", async () => {
+  let workspaceId: string | null = "first-workspace";
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 16_000 }), system: "system", summarize: async () => "unused",
+    partialHistory: { draft: "SUMMARY-DRAFT", files: { text: "WORKSPACE-FILE-CONTENTS", workspaceId } },
+    restoreWorkspace: async () => workspaceId });
+  const input: ModelMessage[] = [{ role: "user", content: "Continue" }];
+  assert.match(JSON.stringify((await manager.prepare(input)).messages), /WORKSPACE-FILE-CONTENTS/);
+  await manager.authorizeRestoredContext();
+
+  workspaceId = "next-workspace";
+  await assert.rejects(() => manager.authorizeRestoredContext(), { code: "FORBIDDEN" });
+  const updated = JSON.stringify((await manager.prepare(input)).messages);
+  assert.match(updated, /SUMMARY-DRAFT/);
+  assert.doesNotMatch(updated, /WORKSPACE-FILE-CONTENTS/);
+  await manager.authorizeRestoredContext();
 });
 
 test("what was put back sits under the summary, unchanged from request to request, so a prompt cache keeps matching it", async () => {
