@@ -21,6 +21,7 @@ import { conversationCollections } from "@/lib/conversations/document-scope";
 import { contextBudget } from "@/lib/models/context-budget";
 import { modelRefKey } from "@/lib/models/preferences-schema";
 import { createStepContext, withoutToolRecords, type PartialHistory } from "./step-context";
+import type { RestartEvidence } from "./restart-evidence";
 import { createThinkingClock, thinkingRecordSchema } from "./thinking";
 import { summarizeWithInternalAgent, type CompactionAllowance } from "./task-summary";
 import { commitTurnFold, keepRestoredContext } from "./summary";
@@ -29,7 +30,8 @@ import { prepareStepImages, stepImageStats } from "./step-images";
 import type { ConversationImageScope } from "@/lib/media/conversation-images";
 import { EMPTY_SUMMARY_STATE, foldIntoState, recordedFacts, toolCallsIn, type SummaryState } from "./compaction-state";
 import { restoredContext } from "./compaction-restore";
-import { conversationWorkspace } from "@/lib/local-files/workspace";
+import { conversationWorkspace, requireConversationWorkspace } from "@/lib/local-files/workspace";
+import type { ProjectInstructions } from "@/lib/local-files/project-instructions";
 import { externalToolIdPattern } from "@/lib/extensions/schema";
 import { contextCalibration, conversationCalibration, recordContextCalibration } from "@/lib/models/context-calibration";
 import { compactAfterTurn } from "./compaction";
@@ -118,6 +120,8 @@ async function costOfTurn(params: { usage: unknown; providerMetadata: unknown; m
 type ChatAnswer = { input: ChatRequest; conversation: ChatPersistence; systemPrompt: string; modelMessages: ModelMessage[]; toolsEnabled: boolean; signal: AbortSignal; unavailableTools?: string[]; runId?: string | null; usesMemory?: boolean; compactionAllowance?: CompactionAllowance; chosenTool?: string | null;
   /** The part of the system prompt listing skills, which the usage view counts separately. */
   skillsPrompt?: string;
+  projectInstructions: ProjectInstructions;
+  restartEvidence?: RestartEvidence;
   historyAttachments?: { count: number; bytes: number };
   approvalMessage?: UIMessage;
   partialHistory?: PartialHistory;
@@ -279,6 +283,9 @@ async function openChatAnswer(params: ChatAnswer) {
   };
 
   const preferences = await getModelPreferences();
+  const { projectInstructions } = params;
+  const projectPrompt = projectInstructions?.status === "loaded" ? projectInstructions.prompt : "";
+  const projectFile = projectInstructions?.status === "loaded" ? projectInstructions.file : undefined;
   const unattended = params.callSource === "scheduled";
   const scheduled = unattended || conversation.scheduledApproval === true;
   let activeRef = modelRef;
@@ -308,17 +315,20 @@ async function openChatAnswer(params: ChatAnswer) {
   const sentDefinitions = () => activeTools ? toolDefinitions?.filter(tool => activeTools!.includes(tool.name)) : toolDefinitions;
   const sentTools = () => tools && activeTools ? Object.fromEntries(Object.entries(tools).filter(([name]) => activeTools!.includes(name))) : tools;
   const calibration = await conversationCalibration(modelRef, messages);
-  const contextReport = () => ({ ...stepContext.report, ...(params.compactionAllowance?.exhausted ? { compactionAllowanceExhausted: true } : {}) });
+  const contextReport = () => ({ ...stepContext.report,
+    ...(projectInstructions?.status === "unreadable" ? { projectInstructionsStatus: projectInstructions.status } : {}),
+    ...(params.compactionAllowance?.exhausted ? { compactionAllowanceExhausted: true } : {}) });
   // The conversation's one summary. A fold during this turn updates it, so the next
   // request, or this turn resuming after an approval, does not pay for the work again.
   const stored = await storedSummary(chat.id);
   let keptSummary = stored?.summary ?? null, summaryModel = "", foldState = stored?.state ?? EMPTY_SUMMARY_STATE;
   let foldWrites: Promise<unknown> = Promise.resolve();
   let restoredSeen: SummaryState["files"] = [];
-  const stepContext = createStepContext({ budget, system: systemPrompt, tools: sentDefinitions(), signal, calibration, onModelFold: params.onModelFold,
-    sizes: { skills: params.skillsPrompt, extensionTools: sentDefinitions()?.filter(tool => externalToolIdPattern.test(tool.name)) },
+  const stepContext = createStepContext({ budget, system: systemPrompt + projectPrompt, tools: sentDefinitions(), signal, calibration, onModelFold: params.onModelFold, projectInstructionsFile: projectFile,
+    sizes: { skills: params.skillsPrompt, projectInstructions: projectPrompt, extensionTools: sentDefinitions()?.filter(tool => externalToolIdPattern.test(tool.name)) },
     handoff: stored ? { state: stored.summary, calls: stored.state.calls, restored: toolsEnabled ? stored.state.restored : undefined } : null,
     partialHistory: params.partialHistory,
+    restartEvidence: params.restartEvidence && { ...params.restartEvidence, currentWorkspace: async () => (await conversationWorkspace(chat.id))?.id ?? null },
     recorded: () => [recordedFacts(foldState), tools?.readConversationHistory ? LOOKUP_HINT : ""].filter(Boolean).join("\n"),
     summarize: async (records, previous, sent) => {
       const { state, modelRef: used } = await summarizeWithInternalAgent({ main: activeRef, records, previous, signal, allowance: params.compactionAllowance, request: getLatestUserMessage(messages)?.text,
@@ -330,7 +340,7 @@ async function openChatAnswer(params: ChatAnswer) {
       restoreWorkspace: async () => tools?.readProjectFile ? (await conversationWorkspace(chat.id))?.id ?? null : null,
       restoreAfterFold: async (inUse: Set<string>, workspaceId: string | null) => {
         const { text, seen } = await restoredContext({ state: foldState, inUse, signal, inputTokens: budget.inputTokens, allowSkills: true,
-          workspaceId, allowFiles: workspaceId !== null });
+          workspaceId, allowFiles: workspaceId !== null, projectInstructions: projectFile });
         restoredSeen = seen;
         return text;
       },
@@ -357,10 +367,13 @@ async function openChatAnswer(params: ChatAnswer) {
   // messages stay whole, and later steps keep the folded state.
   // The model answering this request: the selected one, or the fallback once
   // it has taken over. Cost and calibration are recorded for it.
-  const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: activeSystem, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
+  const toPrompt = async (stepMessages: ModelMessage[]): Promise<LanguageModelV3Prompt> => convertToLanguageModelPrompt({ prompt: await standardizePrompt({ system: activeSystem + projectPrompt, messages: stepMessages }), supportedUrls: await observed.supportedUrls, download: undefined });
   const observed: ReturnType<typeof getChatModel> = withModelCallSource(params.callSource ?? "chat", () => getChatModel(modelRef, {
     reasoning: input.reasoning,
-    beforeSubmit: stepContext.authorizeRestoredContext,
+    beforeSubmit: async () => {
+      await stepContext.authorizeRestoredContext();
+      if (projectFile) await requireConversationWorkspace(chat.id, projectFile.grantId);
+    },
     // Whichever model answers takes the request as it stands — same tools, same
     // messages — and the rest of it is planned for that model's own window: the
     // step it takes over is fitted again, and later steps compact against it.
@@ -374,7 +387,7 @@ async function openChatAnswer(params: ChatAnswer) {
       const projected = await projectStep(reviewMessages ?? modelMessages);
       activeSystem = activeSystem.replace(`\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}`, "");
       if (hasUnseenGeneratedImage(projected)) activeSystem += `\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}`;
-      stepContext.setSystem(activeSystem);
+      stepContext.setSystem(activeSystem + projectPrompt);
       return toPrompt((await stepContext.prepare(projected)).messages);
     },
   }));
@@ -388,7 +401,11 @@ async function openChatAnswer(params: ChatAnswer) {
     },
   } });
   try {
-    await stepContext.prepare(projectReasoning(modelMessages, activeRef));
+    if (projectInstructions?.status === "too-large") {
+      throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("chat.context.projectInstructionsExceedReadLimit") });
+    }
+    const initialMessages = projectPrompt && input.isApprovalResume ? await projectStep(modelMessages) : projectReasoning(modelMessages, activeRef);
+    await stepContext.prepare(initialMessages);
     signal.throwIfAborted();
     if (input.isApprovalResume && conversation.approvalDeferred) {
       const previous = await claimChatApproval(chat.id, messages.at(-1)!);
@@ -423,7 +440,7 @@ async function openChatAnswer(params: ChatAnswer) {
       const projected = await projectStep(stepMessages);
       activeSystem = hasUnseenGeneratedImage(projected) ? `${systemPrompt}\n${UNSEEN_IMAGE_REPLY_INSTRUCTION}` : systemPrompt;
       if (terminalReview.hasCompleted()) activeSystem += "\nA command exited with code zero but its output was abbreviated. Before concluding it succeeded, use readTerminalLog to find a test or build outcome and review the rest of both non-empty streams. A filtered search or a log without a result summary does not establish success. If you cannot verify the result, leave it unverified.";
-      stepContext.setSystem(activeSystem);
+      stepContext.setSystem(activeSystem + projectPrompt);
       // Tools loaded on demand in an earlier step are offered, in full, from this one.
       if (tools) {
         activeTools = activeToolIds(tools, stepMessages);
@@ -453,7 +470,7 @@ async function openChatAnswer(params: ChatAnswer) {
       // A reminder about the checklist rides on this step only, after everything else, so the prompt before it stays as it was.
       const reminder = tools && "updatePlan" in tools ? planReminder(stepMessages) : null;
       const messages = [...prepared.messages, ...[...subagentReports, ...(reminder ? [reminder] : [])].map(text => ({ role: "user" as const, content: [{ type: "text" as const, text }] }))];
-      return { ...prepared, messages, system: activeSystem, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : activeTools ? { activeTools } : {}) };
+      return { ...prepared, messages, system: activeSystem + projectPrompt, ...(stepNumber === 0 && params.chosenTool ? { activeTools: [params.chosenTool] } : activeTools ? { activeTools } : {}) };
     },
     onStepFinish: ({ usage, toolCalls, stepNumber, reasoning, providerMetadata }) => {
       stepContext.observeUsage(usage.inputTokens);

@@ -1,9 +1,13 @@
 import { test as base, expect } from "@playwright/test";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { openWorkspace, TEST_ACCESS_TOKEN } from "../helpers/workspace-entry";
 import { browserApi, browserData } from "../helpers/browser-api";
 import { configureOfflineModels } from "../helpers/model-fixture";
+import type { RunView } from "../../src/lib/agent/runs";
+import { decodePersistedAssistantToolMessage } from "../../src/lib/ai/ui-message";
 
 const test = base.extend<{ app: Awaited<ReturnType<typeof startStandaloneServer>> }>({
   app: async ({}, runTest) => {
@@ -95,4 +99,73 @@ test("desktop restart marks an unfinished run interrupted without replaying it",
   await page.getByText("执行记录", { exact: true }).click();
   await expect(page.getByRole("list", { name: "执行记录" }).getByText("被中断", { exact: true })).toBeVisible();
   expect(app.readRows("SELECT count(*) AS count FROM chats")[0]).toMatchObject({ count: 0 });
+});
+
+test("a restarted service lets the user finish verification without repeating a completed write", async ({ page, app }, info) => {
+  await openWorkspace(page, app.origin);
+  await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+  const folder = join(dirname(realpathSync.native(databaseOf(app))), "registration");
+  mkdirSync(folder);
+  copyFileSync(resolve("tests/fixtures/event-registration.cjs"), join(folder, "registration.cjs"));
+  const ledger = join(folder, "ledger.txt"), receipt = join(folder, "receipt.txt");
+  const granted = await browserApi(page, "/api/directory-grants", "POST", { path: folder });
+  expect(granted.status).toBe(201);
+  const grantId = granted.body.data.id as string;
+  const created = await browserApi(page, "/api/conversations", "POST", { title: "登记和验证" });
+  expect(created.status).toBe(201);
+  const chatId = created.body.data.id as string;
+  const conversation = `/api/conversations/${chatId}`;
+  const configured = await browserApi(page, conversation, "PATCH", { workspaceGrantId: grantId, approvalRule: "full" });
+  expect(configured.status).toBe(200);
+  const runs = () => browserData(page, `${conversation}/runs`) as Promise<RunView[]>;
+  const send = (id: string, text: string) => page.evaluate(async ({ chatId, id, text }) => {
+    const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+      chatId, messages: [{ id, role: "user", parts: [{ type: "text", text }] }],
+    }) });
+    await response.text();
+    return response.status;
+  }, { chatId, id, text });
+  const initialResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
+  // Restarting the process can cut the old stream before its final message is saved.
+  const initial = send("begin-registration", `OFFLINE_REGISTRATION_START GRANT_ID=${grantId} Register once, then verify separately.`).catch(() => null);
+  expect((await initialResponse).status()).toBe(200);
+  await expect.poll(() => existsSync(join(folder, "verification-started.txt"))).toBe(true);
+  expect(readFileSync(ledger, "utf8")).toBe("REG-63\n");
+  expect(existsSync(receipt)).toBe(false);
+  const [inProgress] = await runs();
+  const write = expect.objectContaining({ toolName: "runTerminalCommand", state: "done", input: expect.objectContaining({ command: expect.stringContaining("registration.cjs apply") }) });
+  const verification = (state: string) => expect.objectContaining({ toolName: "runTerminalCommand", state, input: expect.objectContaining({ command: expect.stringContaining("registration.cjs verify") }) });
+  expect(inProgress).toMatchObject({ status: "running", steps: [write, verification("running")] });
+  const requestsBeforeRestart = app.providerCalls.length;
+
+  await app.restart();
+  await initial;
+  expect(app.providerCalls).toHaveLength(requestsBeforeRestart);
+  expect(readFileSync(ledger, "utf8")).toBe("REG-63\n");
+  expect(existsSync(receipt)).toBe(false);
+
+  expect(await send("continue-registration", `OFFLINE_REGISTRATION_CONTINUE GRANT_ID=${grantId} Check the existing registration and finish verification.`)).toBe(200);
+  const saved = await browserData(page, `${conversation}/messages`) as { role: string; content: string }[];
+  const reply = saved.filter(message => message.role === "assistant").at(-1);
+  expect(reply && decodePersistedAssistantToolMessage(reply.content)?.text).toContain("Verified REG-63 against the registration ledger.");
+  const [completed, paused] = await runs();
+  expect(completed).toMatchObject({ status: "succeeded", steps: [
+    expect.objectContaining({ toolName: "readProjectFile", state: "done", input: expect.objectContaining({ path: "ledger.txt" }) }), verification("done"),
+  ] });
+  expect(paused).toMatchObject({ id: inProgress.id, status: "paused", stopReason: "interrupted-by-restart", steps: [write, verification("cancelled")] });
+  expect(paused.steps[0]).toEqual(inProgress.steps[0]);
+  expect(paused.steps[1].errorCode).toBe("OUTCOME_UNKNOWN");
+  expect(readFileSync(receipt, "utf8")).toBe("VERIFIED REG-63\n");
+  expect(readFileSync(ledger, "utf8")).toBe("REG-63\n");
+  const firstFollowUp = app.providerCalls.slice(requestsBeforeRestart).find(call => call.stream);
+  expect(firstFollowUp).toBeDefined();
+  const providerInput = JSON.stringify(firstFollowUp!.messages);
+  expect(providerInput).toContain("Execution evidence from the previous turn interrupted by a service restart");
+  expect(providerInput).toContain("Registered REG-63");
+  expect(providerInput).toContain("interrupted; outcome unknown");
+  await info.attach("restart-evidence", { contentType: "application/json", body: JSON.stringify({
+    providerSawOriginalWriteResult: providerInput.includes("Registered REG-63"),
+    preservedSteps: paused.steps.map(step => step.state),
+    resumedSteps: completed.steps.map(step => step.toolName),
+  }) });
 });

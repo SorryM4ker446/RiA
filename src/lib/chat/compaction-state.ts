@@ -1,7 +1,9 @@
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 
-const restoredContextSchema = z.object({ version: z.literal(1), workspaceId: z.string().nullable(), text: z.string() });
+const restoredContextSchema = z.object({ version: z.literal(1), workspaceId: z.string().nullable(), text: z.string(),
+  /** The path excluded when its full text was supplied as AGENTS.md. */
+  projectInstructionsPath: z.string().optional() });
 export type RestoredContextSnapshot = z.infer<typeof restoredContextSchema>;
 
 /**

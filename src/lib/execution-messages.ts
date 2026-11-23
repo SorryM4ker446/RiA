@@ -11,7 +11,7 @@ export function executionGuidance(code: string | null): string {
     case "UPSTREAM_FAILED": case "MODEL_UNAVAILABLE": return t("execution.guidance.upstream");
     case "TIMEOUT": case "ABORTED": return t("execution.guidance.timeout");
     case "SERVICE_UNAVAILABLE": return t("execution.guidance.serviceUnavailable");
-    case "INTERRUPTED": case "interrupted-by-restart": return t("execution.guidance.interrupted");
+    case "INTERRUPTED": case "OUTCOME_UNKNOWN": case "interrupted-by-restart": return t("execution.guidance.interrupted");
     case "step-budget": case "failure-budget": case "cost-budget": case "deadline-exceeded": return t("execution.guidance.budget");
     case "UNSUPPORTED_KIND": return t("execution.guidance.unsupportedKind");
     default: return t("execution.guidance.other");

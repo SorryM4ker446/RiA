@@ -1,4 +1,7 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { mkdtemp, rmdir, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { openWorkspace } from "../helpers/workspace-entry";
 import { startStandaloneServer } from "../helpers/standalone-server";
 import { configureOfflineModels, fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
@@ -16,6 +19,46 @@ const send = async (page: Page, text: string) => {
   await composerInput(page).fill(text);
   await page.getByRole("button", { name: "发送", exact: true }).click();
 };
+
+test("context usage shows full project instructions and reports when the model has no room", async ({ page, app }, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const folder = await mkdtemp(join(tmpdir(), "ria-context-project-"));
+  const instructions = join(folder, "AGENTS.md");
+  try {
+    // The offline provider reports ten tokens for the whole request. Give this
+    // part enough share of that total to survive rounding in the tooltip.
+    await writeFile(instructions, "Use the project's established terminology in reports.\n".repeat(180));
+    await openWorkspace(page, app.origin);
+    await configureOfflineModels(page, { chat: "anthropic/claude-opus-4.6" });
+    const preferences = await browserData(page, "/api/models");
+    preferences.contextLimits["openrouter:anthropic/claude-opus-4.6"] = { contextLength: 32_000, maxOutputTokens: 2048 };
+    expect((await browserApi(page, "/api/models", "PUT", preferences)).status).toBe(200);
+    const grant = await browserApi(page, "/api/directory-grants", "POST", { path: folder });
+    expect(grant.status).toBe(201);
+    const chat = await browserApi(page, "/api/conversations", "POST", { title: "项目用量" });
+    const chatId = chat.body.data.id;
+    expect((await browserApi(page, `/api/conversations/${chatId}`, "PATCH", { workspaceGrantId: grant.body.data.id })).status).toBe(200);
+    await page.goto(`${app.origin}/chat?conversationId=${chatId}`);
+    const usage = page.getByLabel(/^上下文已用约/);
+    const projectRow = page.locator(".context-usage-row").filter({ has: page.getByText("AGENTS.md", { exact: true }) });
+    await send(page, "检查本地项目设置");
+    await usage.hover();
+    await expect(projectRow).toBeVisible();
+    await expect(projectRow.locator(".context-usage-tokens")).not.toHaveText("0");
+    await info.attach("project instructions usage", { body: await page.screenshot(), contentType: "image/png" });
+
+    await writeFile(instructions, "0".repeat(120_000));
+    const refusal = page.waitForResponse(response => response.url() === `${app.origin}/api/chat` && response.request().method() === "POST");
+    await send(page, "再次检查本地项目设置");
+    expect((await refusal).status()).toBe(413);
+    await expect(page.getByText(/当前模型的上下文放不下完整的 AGENTS\.md.*工作区操作已暂停/).first()).toBeVisible();
+    expect(errors).toEqual([]);
+  } finally {
+    await unlink(instructions).catch(error => { if (error.code !== "ENOENT") throw error; });
+    await rmdir(folder);
+  }
+});
 
 test("the transcript says context is being organized until the answer can start", async ({ page }) => {
   const chat = { id: "organizing", title: "整理", lastMessageAt: "2026-09-28T00:00:00Z", messageCount: 0 };

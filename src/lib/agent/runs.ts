@@ -20,6 +20,8 @@ import { t } from "@/lib/locale";
 
 export type RunStatus = "running" | "waiting_approval" | "paused" | "succeeded" | "failed" | "cancelled";
 export type StepState = "running" | "waiting_approval" | "done" | "failed" | "skipped" | "denied" | "cancelled";
+export const RESTART_INTERRUPTION = "interrupted-by-restart";
+export const UNKNOWN_STEP_OUTCOME = "OUTCOME_UNKNOWN";
 
 export const DEFAULT_BUDGET = { maxSteps: null, maxFailures: null, deadlineMs: null } as const;
 
@@ -235,22 +237,32 @@ function currentProcessStart() {
   return Date.now() - process.uptime() * 1000;
 }
 
-export async function reconcileInterruptedRuns() {
+export async function reconcileInterruptedRuns(chatId?: string) {
   const startedAt = currentProcessStart();
+  const open = { in: ["running", "waiting_approval"] };
   const orphans = await db.agentRun.findMany({
-    where: { status: { in: ["running", "waiting_approval"] }, startedAt: { lt: new Date(startedAt) } },
+    where: { chatId, status: open, startedAt: { lt: new Date(startedAt) } },
     select: { id: true },
   });
   if (orphans.length === 0) return 0;
-  await db.agentStep.updateMany({
-    where: { runId: { in: orphans.map((run) => run.id) }, state: { in: ["running", "waiting_approval"] } },
-    data: { state: "cancelled", finishedAt: new Date() },
+  const ids = orphans.map(run => run.id);
+  const finishedAt = new Date();
+  return db.$transaction(async tx => {
+    await tx.agentStep.updateMany({
+      where: { runId: { in: ids }, state: "waiting_approval" },
+      data: { state: "cancelled", errorCode: "INTERRUPTED", finishedAt },
+    });
+    // A tool may have changed something before it could record a result.
+    await tx.agentStep.updateMany({
+      where: { runId: { in: ids }, state: "running" },
+      data: { state: "cancelled", errorCode: UNKNOWN_STEP_OUTCOME, finishedAt },
+    });
+    const { count } = await tx.agentRun.updateMany({
+      where: { id: { in: ids }, status: open },
+      data: { status: "paused", stopReason: RESTART_INTERRUPTION, finishedAt },
+    });
+    return count;
   });
-  await db.agentRun.updateMany({
-    where: { id: { in: orphans.map((run) => run.id) } },
-    data: { status: "paused", stopReason: "interrupted-by-restart", finishedAt: new Date() },
-  });
-  return orphans.length;
 }
 
 export async function listRuns(chatId: string, limit = 20): Promise<RunView[]> {

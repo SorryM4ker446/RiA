@@ -1,6 +1,7 @@
 import { estimateTextTokens } from "@/lib/models/context-budget";
 import { activeSkillPackages } from "@/lib/plugins/store";
 import { projectFileModifiedAt, readProjectFile } from "@/lib/project-files/service";
+import { isProjectInstructionFile, type ProjectInstructionFile } from "@/lib/local-files/project-instructions";
 import type { SummaryState } from "./compaction-state";
 
 /** What is put back after a fold, the way Claude Code bounds its own. */
@@ -33,11 +34,13 @@ async function selectFiles(files: RestoredFile[], signal?: AbortSignal) {
   return dated.filter(item => item !== null).sort((a, b) => b.modifiedAt - a.modifiedAt || b.order - a.order).slice(0, MAX_FILES).map(item => item.file);
 }
 
-async function fileLines(files: RestoredFile[], room: { tokens: number }, seen: RestoredFile[], signal?: AbortSignal, asOf = "as it was when this summary was written") {
+async function fileLines(files: RestoredFile[], room: { tokens: number }, seen: RestoredFile[], options: { signal?: AbortSignal; asOf?: string; projectInstructions?: ProjectInstructionFile }) {
+  const { signal, asOf = "as it was when this summary was written", projectInstructions } = options;
   const lines: string[] = [];
   for (const file of files) {
     try {
       const read = await readProjectFile({ grantId: file.grantId, path: file.path, startLine: 1, lineCount: 2000 }, signal);
+      if (isProjectInstructionFile(projectInstructions, read)) continue;
       const content = read.lines.map(line => line.text).join("\n");
       const size = estimateTextTokens(content);
       if (read.nextLine === null && size <= Math.min(FILE_TOKENS, room.tokens)) {
@@ -55,10 +58,12 @@ async function fileLines(files: RestoredFile[], room: { tokens: number }, seen: 
 }
 
 /** Recover explicitly referenced evidence when the summary call allowance is exhausted. */
-export async function restoreReferencedFiles(params: { files: RestoredFile[]; workspaceId: string; request: string; inputTokens: number; signal?: AbortSignal }) {
+export async function restoreReferencedFiles(params: { files: RestoredFile[]; workspaceId: string; request: string; inputTokens: number; signal?: AbortSignal; projectInstructions?: ProjectInstructionFile }) {
   const request = params.request.replaceAll("\\", "/");
-  const files = params.files.filter(file => file.grantId === params.workspaceId && namesFile(request, file)).slice(-MAX_FILES).reverse();
-  const lines = await fileLines(files, { tokens: Math.min(1000, Math.floor(params.inputTokens * RESTORED_SHARE)) }, [], params.signal, "as read for this request");
+  const files = params.files.filter(file => file.grantId === params.workspaceId && !isProjectInstructionFile(params.projectInstructions, file) && namesFile(request, file)).slice(-MAX_FILES).reverse();
+  const lines = await fileLines(files, { tokens: Math.min(1000, Math.floor(params.inputTokens * RESTORED_SHARE)) }, [], {
+    signal: params.signal, projectInstructions: params.projectInstructions, asOf: "as read for this request",
+  });
   return lines.join("\n\n");
 }
 
@@ -84,11 +89,12 @@ async function skillLines(packageIds: string[], room: { tokens: number }, signal
  * written and sent unchanged after that. A file still in the conversation is not repeated.
  * Also says which files it saw as they are now, which a later change is measured against.
  */
-export async function restoredContext(params: { state: SummaryState; inUse: Set<string>; workspaceId: string | null; allowFiles: boolean; allowSkills: boolean; inputTokens: number; signal?: AbortSignal }) {
+export async function restoredContext(params: { state: SummaryState; inUse: Set<string>; workspaceId: string | null; allowFiles: boolean; allowSkills: boolean; inputTokens: number; signal?: AbortSignal; projectInstructions?: ProjectInstructionFile }) {
   const room = { tokens: Math.floor(params.inputTokens * RESTORED_SHARE) };
   const seen: RestoredFile[] = [];
-  const files = params.allowFiles ? params.state.files.filter(file => file.grantId === params.workspaceId && !params.inUse.has(file.path)) : [];
-  const fileText = files.length ? await fileLines(await selectFiles(files, params.signal), room, seen, params.signal) : [];
+  const files = params.allowFiles ? params.state.files.filter(file => file.grantId === params.workspaceId && !params.inUse.has(file.path)
+    && !isProjectInstructionFile(params.projectInstructions, file)) : [];
+  const fileText = files.length ? await fileLines(await selectFiles(files, params.signal), room, seen, params) : [];
   const skillText = params.allowSkills && params.state.skills.length ? await skillLines(params.state.skills, room, params.signal) : [];
   const lines = [...fileText, ...skillText];
   return { text: lines.length ? `Files and skills in use before the summary of earlier conversation:\n\n${lines.join("\n\n")}` : "", seen };
@@ -98,8 +104,8 @@ export async function restoredContext(params: { state: SummaryState; inUse: Set<
  * Files the model saw that are no longer as it saw them, because something other than
  * its own edit changed them. Checking is a help: a file that cannot be read says nothing.
  */
-export async function changedFiles(params: { seen: ReadonlyMap<string, string>; grantId: string; signal?: AbortSignal }) {
-  const checked = [...params.seen].slice(-MAX_CHECKED_FILES);
+export async function changedFiles(params: { seen: ReadonlyMap<string, string>; grantId: string; signal?: AbortSignal; projectInstructions?: ProjectInstructionFile }) {
+  const checked = [...params.seen].filter(([path]) => !isProjectInstructionFile(params.projectInstructions, { grantId: params.grantId, path })).slice(-MAX_CHECKED_FILES);
   const changes = await Promise.all(checked.map(async ([path, hash]) => {
     try {
       const read = await readProjectFile({ grantId: params.grantId, path, startLine: 1, lineCount: 1 }, params.signal);

@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { isProjectInstructionFile, type ProjectInstructionFile } from "@/lib/local-files/project-instructions";
+
 export function readEvidence(tool: string, value: unknown) {
   if (!value || typeof value !== "object") return null;
   const item = value as Record<string, unknown>;
@@ -20,5 +23,16 @@ export function readEvidence(tool: string, value: unknown) {
 export function readEvidenceReference(evidence: NonNullable<ReturnType<typeof readEvidence>>, firstCallId: string) {
   return JSON.stringify({ unchanged: true, ...evidence.location, toolCallId: firstCallId, note: "Use the earlier result for this same version and range." });
 }
-import { createHash } from "node:crypto";
+
+/** Keep the read's version and location when its full text already travels in AGENTS.md. */
+export function projectInstructionReadReference(tool: string, value: unknown, source?: ProjectInstructionFile) {
+  if (!source || tool !== "readProjectFile" || !value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  if (item.hash !== source.hash || typeof item.grantId !== "string" || typeof item.path !== "string"
+    || !isProjectInstructionFile(source, { grantId: item.grantId, path: item.path })) return null;
+  const evidence = readEvidence(tool, item);
+  if (!evidence) return null;
+  return { ...evidence.location, grantId: item.grantId, totalLines: item.totalLines, bytes: item.bytes, eol: item.eol, bom: item.bom,
+    note: "Use the AGENTS.md in the prompt when its hash matches this read. Use readConversationHistory for the original result if that version is no longer in the prompt." };
+}
 

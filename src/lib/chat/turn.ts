@@ -23,12 +23,14 @@ import { formatAssistantInstructions } from "@/lib/assistants/schema";
 import { formatPluginSkills } from "@/lib/plugins/store";
 import { conversationCollections } from "@/lib/conversations/document-scope";
 import { conversationWorkspace, formatWorkspaceContext } from "@/lib/local-files/workspace";
+import { readProjectInstructions } from "@/lib/local-files/project-instructions";
 import { resolveInvocation } from "@/lib/chat/invocation";
 import { db } from "@/db";
 import { takeBackgroundCommandContext } from "@/lib/terminal/runtime";
 import { takeUndoContext } from "@/lib/checkpoints/undo";
 import type { CallSource } from "@/lib/models/call-context";
 import { recentConversationImages } from "@/lib/media/conversation-images";
+import { readRestartEvidence } from "@/lib/chat/restart-evidence";
 
 /**
  * One turn of a conversation: the request is saved, the model answers with its
@@ -52,7 +54,10 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
   }
   setupServerProxy();
 
-  const { context, modelMessages, historyAttachments, approvalMessage } = await prepareModelContext(input, signal);
+  const selectedWorkspace = await conversationWorkspace(input.requestedChatId);
+  const projectInstructions = await readProjectInstructions(selectedWorkspace);
+  const projectFile = projectInstructions?.status === "loaded" ? projectInstructions.file : undefined;
+  const { context, modelMessages, historyAttachments, approvalMessage } = await prepareModelContext(input, signal, projectFile);
   const mode = body.mode ?? "chat";
   const isChatMode = mode === "chat";
   const canUseTools = isChatMode && input.model?.supportsTools === true;
@@ -67,6 +72,10 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
   const invocation = latestUserMessage?.invocation && !input.isApprovalResume
     ? await resolveInvocation(latestUserMessage.invocation, { allowedToolIds: input.assistant?.tools, modelSupportsTools: toolsEnabled, modelRef })
     : null;
+  const restartEvidence = input.requestedChatId && latestUserMessage && isChatMode && !input.isApprovalResume && !latestUserMessage.notice
+    && body.trigger !== "regenerate-message" && (!options.callSource || options.callSource === "chat")
+    ? await readRestartEvidence(input.requestedChatId, latestUserMessage.id, selectedWorkspace?.id, modelMessages)
+    : undefined;
   const conversation = await prepareChatPersistence(input, { deferApproval: true, deliverSubagents: options.deliverSubagents });
   const unavailableStatuses = await unavailableChatTools(input.assistant?.tools, canUseTools, modelRef);
   const unavailableTools = unavailableStatuses.map(tool => tool.id);
@@ -97,7 +106,7 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
   // Which folder this conversation works in is restated on every request, so
   // a switch made between turns is what the model acts on next.
   const workspace = toolsEnabled && (!input.assistant || input.assistant.tools.includes("runTerminalCommand"))
-    ? formatWorkspaceContext(await conversationWorkspace(conversation.chat.id), await db.directoryGrant.count({ where: { revokedAt: null } }) > 0)
+    ? formatWorkspaceContext(selectedWorkspace, selectedWorkspace !== null || await db.directoryGrant.count({ where: { revokedAt: null } }) > 0)
     : "";
   // Whether the summary and the messages sent leave nothing out between them. A
   // fold during the turn may only move the summary's end if they do.
@@ -121,7 +130,7 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
           && (valid ? current.summaryUpToMessageId : null) === incomplete.previousBoundary) {
           const request = latestUserMessage?.text;
           const files = workspaceGrant && request && incomplete.files.length
-            ? await restoreReferencedFiles({ files: incomplete.files, workspaceId: workspaceGrant, request, signal,
+            ? await restoreReferencedFiles({ files: incomplete.files, workspaceId: workspaceGrant, request, signal, projectInstructions: projectFile,
               inputTokens: contextBudget(input.model, preferences.contextLimits[modelRefKey(modelRef)]).inputTokens })
             : "";
           partialHistory = { draft: incomplete.draft, ...(files && workspaceGrant ? { files: { text: files, workspaceId: workspaceGrant } } : {}) };
@@ -131,7 +140,7 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
     // A continuation repeats the saved request context. A shorter window may
     // now leave out more history, so supply the uncovered interval if needed.
     if (input.isApprovalResume) return { modelMessages: withRequestTexts(modelMessages, excerpt ? [excerpt] : []), partialHistory };
-    const fileChanges = workspaceGrant ? await changedFiles({ seen: filesSeen(stored?.state, context.messages, workspaceGrant), grantId: workspaceGrant, signal: signal }) : "";
+    const fileChanges = workspaceGrant ? await changedFiles({ seen: filesSeen(stored?.state, context.messages, workspaceGrant), grantId: workspaceGrant, signal, projectInstructions: projectFile }) : "";
     const sentTexts = context.messages.flatMap(message => message.role === "user" ? message.parts.flatMap(part => part.type === "text" ? [part.text] : []) : []);
     const block = buildRequestContext({
       currentTime: formatCurrentTime(),
@@ -158,7 +167,7 @@ export async function answerChatRequest(input: ChatRequest, signal: AbortSignal,
     : null;
 
   return await streamChatResponse({
-    input, conversation, systemPrompt, skillsPrompt, toolsEnabled, signal: signal, chosenTool: invocation?.toolId ?? null,
+    input, conversation, systemPrompt, skillsPrompt, projectInstructions, restartEvidence, toolsEnabled, signal: signal, chosenTool: invocation?.toolId ?? null,
     historyAttachments, approvalMessage,
     ...(awaitsSummary ? {
       settleContext: async () => {

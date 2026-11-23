@@ -59,6 +59,20 @@ positions are never used to guess a match. Missing full messages retain their
 saved summaries; an explicitly linked full historical message can be displayed
 without inventing individual step associations.
 
+After a service restart, RiA pauses unfinished chat runs and retains results
+already recorded. A step recorded as waiting for approval was interrupted
+before execution. A step that had started without a recorded result has an
+unknown outcome and may already have changed state. Older interruption records
+without that distinction are treated as unknown. Approval requests already
+saved in a conversation remain available through the usual approval flow.
+
+The first follow-up in the same conversation that continues the interrupted
+task can use recent saved steps and result excerpts in its first model request.
+RiA skips results already in the model's history and includes workspace evidence
+only for the currently authorized folder. The model can use the recorded results
+and verify unknown outcomes before taking further action. A restart never
+replays a command or transfers its approval to a new call.
+
 ## Task runs
 
 Every run of a [task](tasks.md) is recorded: when it started and finished, whether it was scheduled or started by hand, its status (`running`, `succeeded`, `failed`, `interrupted` or `waiting_approval`), a fixed failure category, and the conversation or backup it produced. **Tasks → Run history** shows the latest 50. A run keeps its task's current name, and keeps its record after the task is deleted. A deleted conversation clears the run's link to it; backup cleanup may remove an older archive, so its entry opens the backup list.

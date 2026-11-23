@@ -4,9 +4,11 @@ import { t } from "@/lib/locale";
 import { ApiError } from "@/lib/server/api-error";
 import { REQUEST_CONTEXT_HEADER, type ContextReport } from "./context-report";
 import { historicalToolText, historyTextExcerpt, shownExcerptCharacters, summaryRecordCharacters, TOOL_HISTORY_CHARACTERS } from "./tool-history";
-import { readEvidence, readEvidenceReference } from "./tool-read-evidence";
+import { projectInstructionReadReference, readEvidence, readEvidenceReference } from "./tool-read-evidence";
 import { stepImageStats } from "./step-images";
 import type { RestoredContextSnapshot } from "./compaction-state";
+import type { ProjectInstructionFile } from "@/lib/local-files/project-instructions";
+import type { RestartEvidence } from "./restart-evidence";
 
 type ToolResult = Extract<Extract<ModelMessage, { role: "tool" }>["content"][number], { type: "tool-result" }>;
 /** A result as the record forms read it, whichever way its output is encoded. */
@@ -117,10 +119,12 @@ export function createStepContext(params: {
   /** The conversation's summary, the tool calls it stands in for and what was put back under it. */
   handoff?: { state: string; calls: string[]; restored?: RestoredContextSnapshot } | null;
   partialHistory?: PartialHistory;
+  restartEvidence?: RestartEvidence & { currentWorkspace: () => Promise<string | null> };
   /** The exact record of what was done, which travels under the summary. */
   recorded?: () => string;
   /** Parts of the instructions and tools that count separately in the usage view. */
-  sizes?: { skills?: string; extensionTools?: unknown };
+  sizes?: { skills?: string; extensionTools?: unknown; projectInstructions?: string };
+  projectInstructionsFile?: ProjectInstructionFile;
   /** Told when what was put back under the summary changes, so it can be kept. */
   onRestored?: (restored: RestoredContextSnapshot) => void;
   /** Told each time the summary changes, so it can be kept. */
@@ -136,6 +140,7 @@ export function createStepContext(params: {
   // over this request, and every later step is planned for the fallback.
   let budget = params.budget;
   let partialHistory = params.partialHistory;
+  let restartEvidence = params.restartEvidence;
   let covered = new Set<number>(), state = params.handoff?.state ?? "";
   // Indices do not survive a reload of the messages; call identities do.
   const coveredCalls = new Set<string>(params.handoff?.calls), coveredApprovals = new Set<string>();
@@ -150,7 +155,8 @@ export function createStepContext(params: {
   const refreshRestored = async (messages: ModelMessage[], folded = false) => {
     if (!params.restoreAfterFold) return;
     const workspaceId = await restoreWorkspace();
-    if (!folded && restored?.workspaceId === workspaceId) return;
+    const projectInstructionsPath = params.projectInstructionsFile?.grantId === workspaceId ? params.projectInstructionsFile.path : undefined;
+    if (!folded && restored?.workspaceId === workspaceId && restored.projectInstructionsPath === projectInstructionsPath) return;
     const inUse = new Set<string>();
     for (const message of render(messages, "")) {
       if (typeof message.content === "string") continue;
@@ -159,7 +165,8 @@ export function createStepContext(params: {
     const text = await params.restoreAfterFold(inUse, workspaceId).catch(() => { params.signal?.throwIfAborted(); return undefined; });
     const current = workspaceId === null || await restoreWorkspace() === workspaceId;
     params.signal?.throwIfAborted();
-    const next: RestoredContextSnapshot | undefined = text !== undefined && current ? { version: 1, text, workspaceId } : undefined;
+    const next: RestoredContextSnapshot | undefined = text !== undefined && current
+      ? { version: 1, text, workspaceId, ...(projectInstructionsPath ? { projectInstructionsPath } : {}) } : undefined;
     if (restored?.text !== next?.text) version++;
     restored = next;
     if (restored && !report.degraded) params.onRestored?.(restored);
@@ -174,6 +181,8 @@ export function createStepContext(params: {
   // lighter content says nothing about the next.
   let unscaledEstimate = 0, observedRatio: number | null = null;
   const estimate = (messages: ModelMessage[]) => estimateContextTokens(input(messages), report.usageCalibration);
+  const projectInstructions = params.sizes?.projectInstructions ?? "";
+  const projectContextLimit = () => new ApiError({ code: "CONTEXT_LIMIT", message: t("chat.context.projectInstructionsDoNotFit") });
   // Provider-reported input of the last prepared step. While nothing has been
   // folded since, the next step is that prompt plus appended messages, so it is
   // measured as the reported count plus an estimate of the appended part only.
@@ -191,13 +200,16 @@ export function createStepContext(params: {
    * still shown whole (not folded into the summary, not cut to an excerpt), with the
    * note said instead. A read of another version, other lines or another folder is a read of its own.
    */
-  function repeatedReads(messages: ModelMessage[], omitted: ReadonlySet<number>) {
+  function repeatedReads(messages: ModelMessage[], omitted: ReadonlySet<number>, includeProjectReads = false) {
     const first = new Map<string, string>(), notes = new Map<ToolResult, string>();
     messages.forEach((message, index) => {
       if (omitted.has(index) || typeof message.content === "string") return;
       for (const part of message.content) {
-        if (part.type !== "tool-result" || coveredCalls.has(part.toolCallId) || excerpts.has(part.toolCallId)) continue;
+        if (part.type !== "tool-result" || coveredCalls.has(part.toolCallId)) continue;
         if (part.output.type !== "json") continue;
+        const projectReference = !includeProjectReads && projectInstructionReadReference(part.toolName, part.output.value, params.projectInstructionsFile);
+        if (projectReference) { notes.set(part, JSON.stringify(projectReference)); continue; }
+        if (excerpts.has(part.toolCallId)) continue;
         const evidence = readEvidence(part.toolName, part.output.value);
         if (!evidence) continue;
         const earlier = first.get(evidence.key);
@@ -206,10 +218,10 @@ export function createStepContext(params: {
     });
     return notes;
   }
-  function render(messages: ModelMessage[], summary = state, omitted = covered, options: { whole?: boolean } = {}) {
+  function render(messages: ModelMessage[], summary = state, omitted = covered, options: { whole?: boolean; includeProjectReads?: boolean; omitRestartEvidence?: boolean } = {}) {
     const callOrder = new Map<string, number>();
     for (const { content } of messages) if (typeof content !== "string") for (const part of content) if (part.type === "tool-call" && !callOrder.has(part.toolCallId)) callOrder.set(part.toolCallId, callOrder.size);
-    const repeats = options.whole ? new Map<ToolResult, string>() : repeatedReads(messages, omitted);
+    const repeats = options.whole ? new Map<ToolResult, string>() : repeatedReads(messages, omitted, options.includeProjectReads);
     const retained = messages.flatMap((message, index): ModelMessage[] => {
       if (omitted.has(index)) return [];
       if (typeof message.content === "string") return [message];
@@ -223,6 +235,15 @@ export function createStepContext(params: {
       if (message.role === "tool") inCallOrder(content as Extract<ModelMessage, { role: "tool" }>["content"], callOrder);
       return content.length ? [{ ...message, content } as ModelMessage] : [];
     });
+    if (restartEvidence && !options.whole && !options.omitRestartEvidence) {
+      let latest = -1;
+      retained.forEach((message, index) => { if (message.role === "user") latest = index; });
+      const message = retained[latest];
+      if (message?.role === "user") {
+        const content = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
+        retained[latest] = { ...message, content: [{ type: "text", text: restartEvidence.text }, ...content] };
+      }
+    }
     if (partialHistory) {
       const { draft, files } = partialHistory;
       const evidence = files ? `Files read from the current workspace for this request:\n${files.text}\n\nDraft from earlier messages:\n${draft}` : draft;
@@ -291,7 +312,9 @@ export function createStepContext(params: {
       }
     });
     const skills = size(params.sizes?.skills ?? ""), extensionToolSize = extensionTools ? size(extensionTools) : 0;
-    return { ...parts, skills, extensionTools: extensionToolSize, system: Math.max(0, size(system) - skills), tools: Math.max(0, size(tools ?? "") - extensionToolSize) };
+    const projectTokens = size(projectInstructions);
+    return { ...parts, skills, extensionTools: extensionToolSize, ...(projectTokens ? { projectInstructions: projectTokens } : {}),
+      system: Math.max(0, size(system) - skills - projectTokens), tools: Math.max(0, size(tools ?? "") - extensionToolSize) };
   }
   /**
    * Fold completed work into the summary when the step reaches the trigger, or
@@ -301,6 +324,8 @@ export function createStepContext(params: {
    */
   async function prepare(messages: ModelMessage[], options: { force?: boolean } = {}) {
     params.signal?.throwIfAborted();
+    // History cannot free room already needed by the system instructions and offered tools.
+    if (projectInstructions && estimate([]) > budget.inputTokens) throw projectContextLimit();
     report.checks++;
     steps++;
     lastMessages = messages;
@@ -318,6 +343,10 @@ export function createStepContext(params: {
     if (state) await refreshRestored(messages);
     if (partialHistory?.files && await restoreWorkspace() !== partialHistory.files.workspaceId) {
       partialHistory = { draft: partialHistory.draft };
+      version++;
+    }
+    if (restartEvidence?.workspaceId && await restartEvidence.currentWorkspace() !== restartEvidence.workspaceId) {
+      restartEvidence = undefined;
       version++;
     }
     for (const message of messages) {
@@ -348,8 +377,13 @@ export function createStepContext(params: {
       if (latestUser > 0) {
         let previousUser = -1;
         messages.slice(0, latestUser).forEach((message, index) => { if (message.role === "user") previousUser = index; });
-        const older = messages.slice(0, previousUser >= 0 ? previousUser : latestUser).map((_message, index) => index).filter(index => !covered.has(index));
-        if (older.length && completedBlock(older.map(index => messages[index]))) candidates.push(older);
+        const addOlder = (start: number, end: number) => {
+          const older = messages.slice(start, end).map((_message, index) => start + index).filter(index => !covered.has(index));
+          if (older.length && completedBlock(older.map(index => messages[index]))) candidates.push(older);
+        };
+        addOlder(0, previousUser >= 0 ? previousUser : latestUser);
+        // Even the previous exchange can be folded when it prevents sending the complete project instructions.
+        if (projectInstructions && previousUser >= 0 && (force || measure(prepared) > budget.inputTokens)) addOlder(previousUser, latestUser);
       }
       const blocks: number[][] = [];
       for (let index = latestUser + 1; index < messages.length; index++) {
@@ -400,7 +434,10 @@ export function createStepContext(params: {
           const content = message.content.filter(part => (part.type === "tool-call" || part.type === "tool-result") && excerpts.has(part.toolCallId));
           return content.length ? [{ ...message, content } as ModelMessage] : [];
         });
-        try { nextState = await params.summarize(records, state, completedBlock(prepared) ? { messages: prepared, whole: modelHistoryRecords(shortened(delta), summaryRecordCharacters(budget.inputTokens)) } : undefined); if (!nextState.trim()) throw new Error("Empty task state"); }
+        // The summarizer does not receive the active AGENTS.md, so manual reads in its history must remain usable.
+        const summaryMessages = params.projectInstructionsFile || restartEvidence
+          ? render(messages, state, covered, { includeProjectReads: !!params.projectInstructionsFile, omitRestartEvidence: true }) : prepared;
+        try { nextState = await params.summarize(records, state, completedBlock(summaryMessages) ? { messages: summaryMessages, whole: modelHistoryRecords(shortened(delta), summaryRecordCharacters(budget.inputTokens)) } : undefined); if (!nextState.trim()) throw new Error("Empty task state"); }
         catch {
           params.signal?.throwIfAborted();
           report.degraded = true; degraded = true;
@@ -444,7 +481,9 @@ export function createStepContext(params: {
       report.excerptedToolResults = excerpts.size;
       prepared = render(messages);
     }
-    report.estimatedInputTokens = assertInputFits(budget, measure(prepared));
+    const estimatedInputTokens = measure(prepared);
+    if (projectInstructions && estimatedInputTokens > budget.inputTokens) throw projectContextLimit();
+    report.estimatedInputTokens = assertInputFits(budget, estimatedInputTokens);
     unscaledEstimate = estimateContextTokens(input(prepared));
     report.breakdown = composition(prepared);
     const imageInput = stepImageStats(prepared);
@@ -459,6 +498,9 @@ export function createStepContext(params: {
     async authorizeRestoredContext() {
       const savedGrant = restored?.text ? restored.workspaceId : null;
       const draftGrant = partialHistory?.files?.workspaceId;
+      if (restartEvidence?.workspaceId && await restartEvidence.currentWorkspace() !== restartEvidence.workspaceId) {
+        throw new ApiError({ code: "FORBIDDEN", message: t("server.workspace.notCurrent") });
+      }
       if (savedGrant == null && draftGrant == null) return;
       const currentGrant = await restoreWorkspace();
       if ((savedGrant != null && currentGrant !== savedGrant) || (draftGrant != null && currentGrant !== draftGrant)) {

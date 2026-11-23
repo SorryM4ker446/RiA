@@ -172,6 +172,16 @@ test("compression failures retain labelled bounded evidence without replaying to
   assert.ok(estimateContextTokens({ system: "system", messages: result.messages }) <= manager.report.budget.inputTokens);
 });
 
+test("after compacting history, project instructions and required input must still fit together", async () => {
+  const projectInstructions = "0".repeat(4_000);
+  const older: ModelMessage[] = [{ role: "user", content: "Historical details" }, { role: "assistant", content: "Acknowledged." }];
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 10_000 }), system: projectInstructions, sizes: { projectInstructions },
+    summarize: async () => "An older detail was acknowledged." });
+  await assert.rejects(manager.prepare([...older, { role: "user", content: "1".repeat(4_000) }]), { code: "CONTEXT_LIMIT", message: /AGENTS\.md/ });
+  assert.equal(manager.report.compactions, 1);
+  assert.equal(manager.report.estimatedInputTokens, 0, "no oversized request was prepared");
+});
+
 test("older tool results are shortened to excerpts before any model call, keeping each call and result paired", async () => {
   const messages = [user, ...block("one"), ...block("two"), ...block("three")], original = structuredClone(messages);
   let summaries = 0;

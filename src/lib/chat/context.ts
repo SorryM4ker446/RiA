@@ -4,7 +4,8 @@ import { estimateTextTokens } from "@/lib/models/context-budget";
 import type { PersistedStep } from "@/lib/ai/ui-message";
 import { currentToolId } from "@/tools/legacy-names";
 import { isTerminalOutputTool, terminalResultForModel } from "@/lib/terminal/model-output";
-import { readEvidence, readEvidenceReference } from "./tool-read-evidence";
+import { projectInstructionReadReference, readEvidence, readEvidenceReference } from "./tool-read-evidence";
+import type { ProjectInstructionFile } from "@/lib/local-files/project-instructions";
 import { generatedImageReceipt } from "@/tools/definitions/generate-image";
 import { canReplayReasoning, readReasoningReplay, reasoningReplayMetadata, withoutReasoningReplay } from "@/lib/models/reasoning-replay";
 import type { ModelRef } from "@/lib/models/preferences-schema";
@@ -31,6 +32,7 @@ type ContextOptions = {
   refillRatio?: number;
   /** What each user message was sent with, kept so a later request repeats it exactly. */
   requestContexts?: ReadonlyMap<string, string[]>;
+  projectInstructions?: ProjectInstructionFile;
   /**
    * Keep finished tool calls and their results as they were, rather than as text
    * excerpts, so a later turn can use what an earlier one read. Space is made only
@@ -82,6 +84,15 @@ export function historicalText(message: UIMessage, maxCharacters?: number, recor
     }
     return "";
   }).filter(Boolean).join("\n");
+}
+
+function referencedProjectReads(message: UIMessage, source?: ProjectInstructionFile): UIMessage {
+  if (!source || message.role !== "assistant") return message;
+  return { ...message, parts: message.parts.map(part => {
+    if (part.type !== "tool-readProjectFile" || !("state" in part) || part.state !== "output-available") return part;
+    const reference = projectInstructionReadReference("readProjectFile", part.output, source);
+    return reference ? { ...part, output: reference } : part;
+  }) };
 }
 
 const HISTORY_INPUT_CHARACTERS = 8000;
@@ -167,7 +178,7 @@ const recordText = (message: UIMessage, covered: ReadonlySet<string>, ref?: Mode
   : "toolCallId" in part && covered.has(part.toolCallId) ? "" : part.type === "reasoning" && !canReplayReasoning(readReasoningReplay(part.providerMetadata), ref) ? "" : JSON.stringify(part)).join("\n");
 
 /** Each suffix needs its own first complete copy. Count backwards so dropping that copy never leaves a dangling reference. */
-function toolHistorySizes(messages: UIMessage[], covered: ReadonlySet<string>, measure: (text: string) => number, sentWith: (message: UIMessage, index: number) => string[], ref?: ModelRef) {
+function toolHistorySizes(messages: UIMessage[], covered: ReadonlySet<string>, measure: (text: string) => number, sentWith: (message: UIMessage, index: number) => string[], ref?: ModelRef, projectInstructions?: ProjectInstructionFile) {
   const sizes = new Array<number>(messages.length + 1).fill(0);
   const repeats = new Map<string, { copies: number; size: number }>();
   for (let index = messages.length - 1; index >= 0; index--) {
@@ -184,6 +195,8 @@ function toolHistorySizes(messages: UIMessage[], covered: ReadonlySet<string>, m
       const shown = isTerminalOutputTool(name) ? terminalResultForModel(output)
         : name === "generateImage" ? generatedImageReceipt(output) ?? output : output;
       size += measure(JSON.stringify({ ...call, callProviderMetadata: withoutReasoningReplay(callProviderMetadata, canReplayReasoning(readReasoningReplay(callProviderMetadata), ref)) }));
+      const projectReference = projectInstructionReadReference(name, shown, projectInstructions);
+      if (projectReference) { size += measure(JSON.stringify(projectReference)); continue; }
       const full = measure(JSON.stringify(shown) ?? "");
       const evidence = readEvidence(name, shown);
       if (!evidence) { size += full; continue; }
@@ -215,7 +228,7 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
     if (approvalResume && index >= latestUserIndex) return message.role === "assistant" ? withSteps(message) : message;
     if (message.role === "user") return message;
     if (options.toolRecords) return historyTurn(message);
-    return { id: message.id, role: "assistant", parts: [{ type: "text", text: historicalText(message) || "(empty response)" }] };
+    return { id: message.id, role: "assistant", parts: [{ type: "text", text: historicalText(referencedProjectReads(message, options.projectInstructions)) || "(empty response)" }] };
   });
 
   let start = Math.max(0, normalized.length - Math.max(2, maxMessages));
@@ -224,7 +237,7 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   // What an earlier message was sent with goes with it again. The latest request gets
   // its own, except an approval resuming, which continues the same request.
   const sentWith = (message: UIMessage, index: number) => message.role === "user" && (index !== latestUserIndex || approvalResume) ? options.requestContexts?.get(message.id) ?? [] : [];
-  const sizes = options.toolRecords ? toolHistorySizes(normalized, covered, measure, sentWith, options.toolRecords.reasoningModel) : new Array<number>(normalized.length + 1).fill(0);
+  const sizes = options.toolRecords ? toolHistorySizes(normalized, covered, measure, sentWith, options.toolRecords.reasoningModel, options.projectInstructions) : new Array<number>(normalized.length + 1).fill(0);
   if (!options.toolRecords) for (let index = normalized.length - 1; index >= 0; index--) {
     sizes[index] = sizes[index + 1] + measure(historicalText(normalized[index])) + sentWith(normalized[index], index).reduce((sum, text) => sum + measure(text), 0);
   }
@@ -253,7 +266,7 @@ export function buildChatContext(messages: UIMessage[], options: ContextOptions 
   const older = conversation.slice(0, start);
   function historyGap(coveredIds: readonly string[] = []) {
     const covered = coveredIds.length ? conversation.findIndex(message => coveredIds.includes(message.id)) : -1;
-    const remaining = older.slice(covered + 1);
+    const remaining = older.slice(covered + 1).map(message => referencedProjectReads(message, options.projectInstructions));
     if (!remaining.length) return { missing: false, incomplete: false, text: "" };
     const excerpts = remaining.map(message => historicalText(message, options.excerptMessageCharacters ?? 500));
     const text = excerpts.map((excerpt, index) => `${remaining[index].role}: ${excerpt}`).join("\n");

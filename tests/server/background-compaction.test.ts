@@ -25,7 +25,7 @@ const { preferencesSchema } = await import("@/lib/models/preferences-schema");
 const { commitTurnFold, keepRestoredContext } = await import("@/lib/chat/summary");
 const { buildChatContext } = await import("@/lib/chat/context");
 const { EMPTY_SUMMARY_STATE, foldIntoState, readSummaryState } = await import("@/lib/chat/compaction-state");
-const { changedFiles, restoredContext, RESTORED_SHARE } = await import("@/lib/chat/compaction-restore");
+const { changedFiles, restoreReferencedFiles, restoredContext, RESTORED_SHARE } = await import("@/lib/chat/compaction-restore");
 const restoredText = async (params: Parameters<typeof restoredContext>[0]) => (await restoredContext(params)).text;
 const { lookupConversationHistory } = await import("@/lib/chat/history-lookup");
 const { recordedFacts, toolCallsIn } = await import("@/lib/chat/compaction-state");
@@ -623,6 +623,34 @@ test("a step that still does not fit gives up what was put back, then shortens t
   assert.ok(manager.report.estimatedInputTokens <= manager.report.budget.inputTokens);
 });
 
+test("restart evidence is visible in the answer request, stays out of summaries and follows workspace authorization", async () => {
+  let grant: string | null = "original-folder";
+  const evidence = "RESTART-FILE-RESULT";
+  const messages: ModelMessage[] = [
+    { role: "user", content: "Earlier work" },
+    { role: "assistant", content: "An earlier answer" },
+    { role: "user", content: "Work interrupted by restart" },
+    { role: "user", content: "Continue" },
+  ];
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 40_000 }), system: "system",
+    restartEvidence: { text: evidence, workspaceId: "original-folder", currentWorkspace: async () => grant },
+    summarize: async (records, _previous, sent) => {
+      assert.doesNotMatch(JSON.stringify({ records, sent }), /RESTART-FILE-RESULT/);
+      return "Earlier exchange summary";
+    },
+  });
+  const prepared = await manager.prepare(messages, { force: true });
+  assert.equal(manager.report.compactions, 1);
+  assert.equal(manager.report.degraded, false);
+  assert.match(JSON.stringify(prepared.messages.at(-1)), /RESTART-FILE-RESULT.*Continue/);
+  assert.doesNotMatch(JSON.stringify(messages), /RESTART-FILE-RESULT/);
+  await manager.authorizeRestoredContext();
+
+  grant = "different-folder";
+  await assert.rejects(manager.authorizeRestoredContext(), { code: "FORBIDDEN" });
+  assert.doesNotMatch(JSON.stringify((await manager.prepare(messages)).messages), /RESTART-FILE-RESULT/);
+});
+
 test("an optional summary draft does not push a fitting prompt into another fold", async () => {
   const budget = contextBudget({ contextLength: 4096, maxOutputTokens: 512 });
   const system = "system";
@@ -969,6 +997,45 @@ test("the next chat request restores the five most recently modified files from 
     await revokeGrant(nextGrant.id);
     rmSync(root, { recursive: true, force: true });
     rmSync(other, { recursive: true, force: true });
+  }
+});
+
+test("a legacy restore that repeats AGENTS.md is rebuilt without losing other files", async t => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-restore-")));
+  const grant = await createGrant({ path: root });
+  try {
+    writeFileSync(join(root, "AGENTS.md"), "CURRENT-AGENTS-BODY\n");
+    writeFileSync(join(root, "contract.txt"), "OTHER-RESTORED-BODY\n");
+    const files = ["AGENTS.md", "contract.txt"].map(path => ({ path, grantId: grant.id }));
+    const source = { ...files[0], hash: readProjectHash(root, "AGENTS.md") };
+    const draft = await restoreReferencedFiles({ files, workspaceId: grant.id, request: "Check AGENTS.md and contract.txt.", inputTokens: 32_000, projectInstructions: source });
+    assert.doesNotMatch(draft, /CURRENT-AGENTS-BODY/);
+    assert.match(draft, /OTHER-RESTORED-BODY/);
+
+    const chat = await db.chat.create({ data: { title: "Restore with AGENTS.md", workspaceGrantId: grant.id, ephemeral: true } });
+    const boundary = await db.message.create({ data: { chatId: chat.id, role: "assistant", content: "Earlier work completed.", createdAt: new Date(1000) } });
+    const summary = "[Task state v1]\nEarlier work completed.";
+    await db.chat.update({ where: { id: chat.id }, data: { summary, summaryRevision: 0, summaryUpToMessageId: boundary.id,
+      summaryState: JSON.stringify({ ...EMPTY_SUMMARY_STATE, files, restored: { version: 1, workspaceId: grant.id, text: "LEGACY-AGENTS-REPETITION" } }) } });
+    const prompts = answers(t);
+    const response = await post({ chatId: chat.id, messages: [{ ...latest("Continue the project."), id: "restore-project-once" }] });
+    assert.match(await wireText(response), /Answered/);
+    assert.equal(prompts.at(-1)!.split("CURRENT-AGENTS-BODY").length - 1, 1);
+    assert.match(prompts.at(-1)!, /OTHER-RESTORED-BODY/);
+    assert.doesNotMatch(prompts.at(-1)!, /LEGACY-AGENTS-REPETITION/);
+    const cached = readSummaryState((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summaryState).restored;
+    assert.equal(cached?.projectInstructionsPath, "AGENTS.md");
+    assert.doesNotMatch(cached?.text ?? "", /CURRENT-AGENTS-BODY/);
+
+    rmSync(join(root, "AGENTS.md"));
+    const next = await post({ chatId: chat.id, messages: [{ ...latest("Continue after the file was removed."), id: "restore-after-project-removal" }] });
+    assert.match(await wireText(next), /Answered/);
+    assert.doesNotMatch(prompts.at(-1)!, /CURRENT-AGENTS-BODY|LEGACY-AGENTS-REPETITION/);
+    assert.match(prompts.at(-1)!, /OTHER-RESTORED-BODY/);
+    assert.equal(readSummaryState((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summaryState).restored?.projectInstructionsPath, undefined);
+  } finally {
+    await revokeGrant(grant.id);
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

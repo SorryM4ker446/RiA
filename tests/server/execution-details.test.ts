@@ -176,7 +176,7 @@ async function preparedStream() {
   const conversation = await prepareChatPersistence(input);
   const run = await startRun({ chatId: conversation.chat.id, goal: "Hello" });
   return { chatId: conversation.chat.id, runId: run.id, start: () => streamChatResponse({
-    input, conversation, systemPrompt: "Answer briefly.", modelMessages: [{ role: "user", content: "Hello" }], toolsEnabled: false,
+    input, conversation, systemPrompt: "Answer briefly.", modelMessages: [{ role: "user", content: "Hello" }], projectInstructions: null, toolsEnabled: false,
     signal: new AbortController().signal, runId: run.id, usesMemory: false,
   }) };
 }

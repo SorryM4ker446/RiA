@@ -24,6 +24,7 @@ function compositionRows(breakdown: NonNullable<ContextReport["breakdown"]>) {
     { key: "tools", label: "chat.composer.contextPartTools", tokens: breakdown.tools, color: "context-part-5" },
     { key: "extensionTools", label: "chat.composer.contextPartExtensionTools", tokens: breakdown.extensionTools, color: "context-part-6" },
     { key: "skills", label: "chat.composer.contextPartSkills", tokens: breakdown.skills, color: "context-part-7" },
+    { key: "projectInstructions", label: "chat.composer.contextPartProjectInstructions", tokens: breakdown.projectInstructions ?? 0, color: "context-part-9" },
     { key: "reference", label: "chat.composer.contextPartReference", tokens: breakdown.reference, color: "context-part-8" },
   ];
   return rows.filter(row => row.tokens > 0);
@@ -88,6 +89,8 @@ export function ContextUsage({ messages, freedTokens = 0 }: { messages: UIMessag
         {buffer ? row("buffer", t("chat.composer.contextPartBuffer"), buffer, "context-part-buffer") : null}
         {row("free", t("chat.composer.contextPartFree"), free, "context-part-free")}
       </div> : null}
+      {report.projectInstructionsStatus ? <p className="text-muted-foreground">{t(report.projectInstructionsStatus === "too-large"
+        ? "chat.composer.projectInstructionsTooLarge" : "chat.composer.projectInstructionsUnreadable")}</p> : null}
     </TooltipContent>
   </Tooltip></TooltipProvider>;
 }

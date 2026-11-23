@@ -20,11 +20,13 @@ export const contextReportSchema = z.object({
   measuredInputTokens: z.number().int().nonnegative().optional(),
   observedRatio: z.number().positive().optional(),
   imageInput: z.object({ count: z.number().int().nonnegative(), encodedBytes: z.number().int().nonnegative(), visualTokens: z.number().int().nonnegative() }).optional(),
+  projectInstructionsStatus: z.enum(["too-large", "unreadable"]).optional(),
   // What the last step sent was made of, in estimated tokens. Only the proportions are
   // read: they are scaled to the provider's count, when it gave one.
   breakdown: z.object({
     messages: z.number().nonnegative(), toolResults: z.number().nonnegative(), summary: z.number().nonnegative(), system: z.number().nonnegative(),
     tools: z.number().nonnegative(), extensionTools: z.number().nonnegative(), skills: z.number().nonnegative(), reference: z.number().nonnegative(),
+    projectInstructions: z.number().nonnegative().optional(),
   }).optional(),
   // Older records name the byte count they were planned with, and lack the
   // input budget and compaction trigger.

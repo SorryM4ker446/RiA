@@ -18,9 +18,8 @@ from provider documentation before relying on large requests.
 
 ## Prompt layout
 
-The system prompt holds only rules that stay the same across a conversation's
-turns: the base instructions, tool rules, capability status, user preferences,
-the assistant template and the skill index. Each rule is stated once. This turn's
+The base system prompt holds the assistant's instructions, tool rules, capability
+status, user preferences, assistant template and skill index. This turn's
 reference data — excerpts of any older turns no summary covers, which files changed,
 and MEMORY.md when this copy has not been sent yet — is sent as one labelled
 context block at the start of the user message it belongs to. The conversation's summary, when there is one, opens
@@ -32,6 +31,26 @@ the new message. The block is saved with its message for this, unless it is over
 64,000 characters, in which case it is sent once. An approval resuming continues the
 same request and sends the block it already had. A file not read back the same way, or
 a turn saved before steps were recorded, simply misses the cache once.
+
+When a conversation has an authorized workspace, RiA reads UTF-8 `AGENTS.md`
+from its root as the answer starts, including when an approval resumes. The
+instructions accompany model requests for that answer and count toward its input
+budget under **AGENTS.md**. RiA checks the workspace again before
+sending the instructions. Its safety rules and the user's explicit request take
+precedence. The instructions cannot change directory access, approvals, or billing.
+
+RiA reads the current file again for the next answer. A missing or empty file
+adds no instructions. The normal project file-read limit applies. Within that
+limit, the complete instructions use the selected model's input budget alongside
+the system prompt, tools and conversation. RiA compacts eligible history to make
+room. If the required context still does not fit, or the file exceeds the general
+read limit, RiA pauses workspace operations and reports the reason before running
+an approved action on resume. The context usage details indicate when the file
+could not be read safely. A tool read of the exact version already loaded as
+instructions sends a reference with the file hash and line range. Its original
+result remains in the execution history. Restoring files after compaction skips
+the file already supplied as current instructions, and a read of another version
+still carries its contents as tool evidence.
 
 ### Prompt caching
 
@@ -309,6 +328,12 @@ conversation and so appears in no evidence; without it a summary cannot say what
 work was for.
 Summaries follow the conversation language independently of the interface language.
 
+The first normal follow-up to a conversation interrupted by a restart can
+receive a bounded excerpt of saved execution evidence alongside the user
+request. It is scoped to the preceding interrupted run and the current
+workspace authorization. The excerpt is omitted from persisted summaries.
+See [execution history and recovery](execution-history.md#chat-tool-details).
+
 Under the summary travels a record no model wrote: the commands run with their exit
 codes and the files edited or created, the latest forty, so those survive even when the
 summary leaves them out. A conversation has one summary, however it was written. A fold during a tool loop
@@ -415,8 +440,9 @@ marks an execution failed with `output-limit` rather than declaring it complete.
 - The latest mandatory input, active reasoning or approved command may exceed a
   small model's budget. Such requests are refused without shortening the command.
 - A process or service restart interrupts active work; it does not automatically
-  resume a terminal command or replay a write. Persisted messages can be used in
-  a new request with current permissions and applicable approvals.
+  resume a terminal command or replay a write. The follow-up can use saved
+  messages and recorded execution evidence with current permissions and
+  applicable approvals.
 
 Automated code-task coverage runs a temporary multi-file Node project through a
 real terminal: inspect, failing tests, code modification, passing tests, older

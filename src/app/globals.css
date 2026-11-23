@@ -28,6 +28,7 @@
   --context-part-6: #008300;
   --context-part-7: #6250d6;
   --context-part-8: #e34948;
+  --context-part-9: #167f94;
   --success: 152 62% 26%;
   --success-foreground: 0 0% 100%;
   --warning: 32 84% 32%;
@@ -73,6 +74,7 @@
   --context-part-6: #008300;
   --context-part-7: #9085e9;
   --context-part-8: #e66767;
+  --context-part-9: #4ab2c6;
   --success: 152 45% 63%;
   --success-foreground: 225 8% 9%;
   --warning: 38 72% 66%;
@@ -1841,6 +1843,7 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .context-part-6 { background: var(--context-part-6); }
 .context-part-7 { background: var(--context-part-7); }
 .context-part-8 { background: var(--context-part-8); }
+.context-part-9 { background: var(--context-part-9); }
 .context-part-buffer { background: hsl(var(--foreground) / .22); }
 .context-part-free { background: hsl(var(--foreground) / .1); }
 

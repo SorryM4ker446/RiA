@@ -89,6 +89,9 @@ export const chatMessages = {
   // --- composer ----------------------------------------------------------
   "chat.composer.contextUsageLabel": "上下文已用约 {percent}%",
   "chat.composer.contextPartReference": "记忆与资料",
+  "chat.composer.contextPartProjectInstructions": "AGENTS.md",
+  "chat.composer.projectInstructionsTooLarge": "工作区的 AGENTS.md 当时因文件大小未加载。",
+  "chat.composer.projectInstructionsUnreadable": "本轮无法加载工作区的 AGENTS.md。",
   "chat.composer.contextPartSystem": "系统提示",
   "chat.composer.contextPartTools": "内置工具",
   "chat.composer.contextPartExtensionTools": "扩展工具",
@@ -287,6 +290,8 @@ export const chatMessages = {
   "chat.compact.submit": "开始整理",
   "chat.compact.marker": "前面的对话已压缩",
   "chat.context.thrashing": "上下文刚压缩完又满了，这一轮已停止：工具的输出对这个模型来说太大。可以换窗口更大的模型，或让工具一次读少一些。",
+  "chat.context.projectInstructionsDoNotFit": "当前模型的上下文放不下完整的 AGENTS.md 和本轮必要内容，工作区操作已暂停。请缩短指令或切换到上下文更大的模型。",
+  "chat.context.projectInstructionsExceedReadLimit": "工作区的 AGENTS.md 超过通用文件读取上限，工作区操作已暂停。请缩短文件后再试。",
   "chat.messages.reasoningLive": "思考中…",
   "chat.messages.reasoningTitle": "思考过程",
   "chat.messages.regenerate": "重新生成",

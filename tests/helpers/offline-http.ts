@@ -250,6 +250,28 @@ if (process.env.RIA_HTTP_FIXTURE === "1") {
         // OFFLINE_SUBAGENT_BG hands it off in the background: the answer comes at once, and the report wakes a turn later.
         // Tool results since this request's own message, so a conversation can ask for a sub-agent more than once.
         const sinceRequest = body.messages.slice(body.messages.findLastIndex(message => message.role === "user") + 1);
+        if (prompt.includes("OFFLINE_REGISTRATION_START") || prompt.includes("OFFLINE_REGISTRATION_CONTINUE")) {
+          const continuing = prompt.includes("OFFLINE_REGISTRATION_CONTINUE");
+          const grantId = /GRANT_ID=([\w-]+)/.exec(prompt)?.[1];
+          const results = sinceRequest.filter(message => message.role === "tool").map(message => JSON.parse(message.content));
+          const last = results.at(-1);
+          const hasRegistration = last?.status === "completed" && last.stdout?.trim() === "Registered REG-63";
+          const hasLedger = last?.path === "ledger.txt" && last.totalLines === 1 && last.nextLine === null && last.lines?.[0]?.text === "REG-63";
+          const node = `'${process.execPath.replaceAll("'", process.platform === "win32" ? "''" : "'\\''")}'`;
+          const registration = (operation: "apply" | "verify") => ({ grantId, command: `${process.platform === "win32" ? "& " : ""}${node} ./registration.cjs ${operation}` });
+          let call: { name: string; input: Record<string, unknown> } | undefined;
+          if (results.length === 0) {
+            call = continuing ? { name: "readProjectFile", input: { grantId, path: "ledger.txt" } } : { name: "runTerminalCommand", input: registration("apply") };
+          } else if (results.length === 1 && (continuing ? hasLedger : hasRegistration)) {
+            call = { name: "runTerminalCommand", input: registration("verify") };
+          }
+          if (call) {
+            const tool = { index: 0, id: `registration-${continuing ? "continue" : "start"}-${results.length}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input) } };
+            return `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [tool] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`;
+          }
+          content = last?.status === "completed" && last.stdout?.trim() === "VERIFIED REG-63"
+            ? "Verified REG-63 against the registration ledger." : "The registration could not be verified from the available results.";
+        }
         if (prompt.includes("OFFLINE_SUBAGENT") && !sinceRequest.some(message => message.role === "tool")) {
           if (!body.tools?.some(tool => tool.function?.name === "runSubagent")) throw new Error("runSubagent was not offered to the fixture model");
           const args = { title: "整理差旅资料", task: "查看差旅资料，并把报销期限保存为知识条目“差旅规程”。", ...(prompt.includes("OFFLINE_SUBAGENT_BG") ? { background: true } : {}) };

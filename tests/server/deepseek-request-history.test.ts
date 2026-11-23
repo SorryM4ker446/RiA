@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { after, test } from "node:test";
 import { NextRequest } from "next/server";
 import type { UIMessage } from "ai";
 import { createTestDatabase } from "../helpers/database";
 import { localAccessCookie } from "../helpers/local-access";
 import { CHAT_MODEL_REF, seedTestModelPreferences } from "../helpers/model-library";
+import { LOCAL_FILE_LIMITS } from "../../src/lib/local-files/limits";
 import type { ModelRef } from "../../src/lib/models/preferences-schema";
 
 // DeepSeek's cache matches a prefix exactly, so this compares the bytes the adapter sends.
@@ -17,9 +19,9 @@ const FLASH = { providerId: "deepseek" as const, modelId: "deepseek-flash" };
 const PRO = { providerId: "deepseek" as const, modelId: "deepseek-v4-pro" };
 type NativeDetail = { type: "reasoning.text"; text: string; signature: string; format: string } | { type: "reasoning.encrypted"; data: string; format: string };
 type Step = { reasoning?: string; details?: NativeDetail[]; text?: string; status?: number; responseModel?: string | null;
-  finish?: "length"; call?: { id: string; name: string; args: unknown } };
+  finish?: "length"; call?: { id: string; name: string; args: unknown }; beforeReply?: () => Promise<void> };
 type WireMessage = { role: string; content?: string; reasoning_content?: string; reasoning_details?: NativeDetail[];
-  tool_call_id?: string; tool_calls?: { id: string; function: { name: string } }[] };
+  tool_call_id?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] };
 const bodies: { model: string; messages: WireMessage[]; tools: unknown }[] = [];
 let script: Step[] = [];
 let outOfBalance = false;
@@ -27,19 +29,23 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
   const url = input instanceof Request ? input.url : String(input);
   if (!url.includes("chat/completions")) return realFetch(input, init);
-  const body = JSON.parse(String(init?.body)) as { model: string; messages: WireMessage[]; tools: unknown };
+  const body = JSON.parse(String(init?.body)) as { model: string; messages: WireMessage[]; tools: unknown; stream?: boolean };
   bodies.push(body);
   if (outOfBalance) return new Response(JSON.stringify({ error: { message: "Insufficient Balance (request_id: secret-request-id)", type: "insufficient_balance_error", code: "invalid_request_error" } }), { status: 402, headers: { "content-type": "application/json" } });
   const step = script.shift() ?? { text: "ok" };
+  await step.beforeReply?.();
   if (step.status) return Response.json({ error: { message: "Offline attempt failed", code: step.status } }, { status: step.status });
   const model = step.responseModel === null ? undefined : step.responseModel ?? body.model;
+  // The model's own spacing in its arguments is not what later requests repeat.
+  const calls = step.call && [{ id: step.call.id, type: "function", function: { name: step.call.name, arguments: JSON.stringify(step.call.args, null, 1) } }];
+  if (!body.stream) return Response.json({ id: "x", model, choices: [{ index: 0, message: { role: "assistant", content: step.text ?? null, tool_calls: calls }, finish_reason: calls ? "tool_calls" : "stop" }],
+    usage: { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105 } });
   const chunk = (delta: unknown, finish: string | null = null, usage?: unknown) => `data: ${JSON.stringify({ id: "x", model, choices: [{ index: 0, delta, finish_reason: finish }], ...(usage ? { usage } : {}) })}\n\n`;
   return new Response([
     ...(step.reasoning ? [chunk(url.includes("openrouter.ai") ? { reasoning: step.reasoning } : { reasoning_content: step.reasoning })] : []),
     ...(step.details ? [chunk({ reasoning_details: step.details })] : []),
     ...(step.text ? [chunk({ content: step.text })] : []),
-    // The model's own spacing in its arguments is not what later requests repeat.
-    ...(step.call ? [chunk({ tool_calls: [{ index: 0, id: step.call.id, type: "function", function: { name: step.call.name, arguments: JSON.stringify(step.call.args).replaceAll(":", ": ") } }] })] : []),
+    ...(calls ? [chunk({ tool_calls: [{ index: 0, ...calls[0] }] })] : []),
     chunk({}, step.finish ?? (step.call ? "tool_calls" : "stop"), { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105, prompt_cache_hit_tokens: 0 }),
     "data: [DONE]\n\n",
   ].join(""), { status: 200, headers: { "content-type": "text/event-stream" } });
@@ -48,13 +54,16 @@ globalThis.fetch = async (input, init) => {
 const cleanup = createTestDatabase();
 const { db } = await import("@/db");
 const chatRoute = await import("@/app/api/chat/route");
+const chatStream = await import("@/app/api/chat/[id]/stream/route");
 const { compactionsSettled } = await import("@/lib/chat/compaction");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
-const { createGrant } = await import("@/lib/local-files/grants");
+const { createGrant, revokeGrant } = await import("@/lib/local-files/grants");
+const { latestContextReport } = await import("@/lib/chat/context-report");
 const { canFallback } = await import("@/lib/models/usage");
 const { retryDelay } = await import("@/lib/models/model-retry");
 const { describeTurnFailure } = await import("@/lib/chat/tool-failure");
 const { clearChatDegradations } = await import("@/lib/models/observe-language");
+const { getChatModel } = await import("@/lib/ai/client");
 const { decodePersistedAssistantToolMessage, encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-message");
 const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-history-")));
 after(async () => { globalThis.fetch = realFetch; await compactionsSettled(); await db.$disconnect(); rmSync(root, { recursive: true, force: true }); cleanup(); });
@@ -147,6 +156,7 @@ async function configureHistoryModels(fallback: ModelRef | null = null, extra: M
   }))];
   settings.chat = { model: FLASH, fallback };
   await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  return settings;
 }
 
 async function loadHistory(chatId: string) {
@@ -158,15 +168,19 @@ const user = (id: string, text: string): UIMessage => ({ id, role: "user", parts
 async function answer(chatId: string, model: ModelRef, messages: UIMessage[], steps: Step[]) {
   const before = bodies.length;
   script = steps;
-  globalThis.__riaRateLimitStore?.clear();
-  const result = await chatRoute.POST(new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie: localAccessCookie(), "content-type": "application/json" },
-    body: JSON.stringify({ chatId, model, messages }) }));
-  assert.equal(result.status, 200);
+  const result = await postChat(chatId, model, messages);
   const wire = await result.text();
+  assert.equal(result.status, 200, wire.slice(-800));
   await compactionsSettled();
   assert.doesNotMatch(wire, /"type":"error"/, wire.slice(-800));
   assert.equal(script.length, 0, "each expected provider step was reached");
   return bodies.slice(before);
+}
+
+function postChat(chatId: string, model: ModelRef, messages: UIMessage[]) {
+  globalThis.__riaRateLimitStore?.clear();
+  return chatRoute.POST(new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie: localAccessCookie(), "content-type": "application/json" },
+    body: JSON.stringify({ chatId, model, messages }) }));
 }
 
 function paired(request: typeof bodies[number], id: string) {
@@ -176,6 +190,257 @@ function paired(request: typeof bodies[number], id: string) {
   assert.ok(resultIndex > request.messages.indexOf(assistant), "the matching tool result follows its call");
   return assistant;
 }
+
+const registrationFixture = new URL("../fixtures/event-registration.cjs", import.meta.url);
+const nodeInTerminal = `${process.platform === "win32" ? "& " : ""}'${process.execPath.replaceAll("'", process.platform === "win32" ? "''" : "'\\''")}'`;
+
+test("continuing a stopped verification gives a new command its own terminal session", { timeout: 30_000 }, async () => {
+  await configureHistoryModels();
+  const folder = mkdtempSync(join(root, "resume-registration-"));
+  copyFileSync(registrationFixture, join(folder, "registration.cjs"));
+  const grant = await createGrant({ path: folder });
+  const chat = await db.chat.create({ data: { title: "Registration and verification", workspaceGrantId: grant.id, approvalRule: "full" } });
+  const command = (id: string, command: string, extra: Record<string, unknown> = {}) => ({ id, name: "runTerminalCommand", args: { grantId: grant.id, command, ...extra } });
+  const apply = `${nodeInTerminal} ./registration.cjs apply`, verify = `${nodeInTerminal} ./registration.cjs verify`;
+  script = [{ call: command("register-once", apply) }, { call: command("verify-before-stop", verify) }];
+  const initial = await postChat(chat.id, FLASH, [user("registration", "Register once and verify separately.")]);
+  assert.equal(initial.status, 200);
+  const runId = initial.headers.get("x-chat-run-id");
+  assert.ok(runId);
+  const stream = initial.text();
+  const receipt = join(folder, "receipt.txt"), ledger = join(folder, "ledger.txt");
+  const stop = () => chatStream.DELETE(new NextRequest(`http://localhost/api/chat/${chat.id}/stream?runId=${runId}`, {
+    method: "DELETE", headers: { cookie: localAccessCookie() },
+  }), { params: Promise.resolve({ id: chat.id }) });
+  try {
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(join(folder, "verification-started.txt")) && Date.now() < deadline) await delay(25);
+    assert.ok(existsSync(join(folder, "verification-started.txt")), "the verification actually started before it was stopped");
+    assert.equal(readFileSync(ledger, "utf8"), "REG-63\n");
+    const stopped = await stop();
+    assert.equal((await stopped.json()).data.stopped, true);
+  } finally { await stop(); await stream; }
+  assert.equal((await db.agentRun.findUniqueOrThrow({ where: { id: runId } })).status, "cancelled");
+  assert.equal(existsSync(receipt), false);
+
+  const inspect = "inspect-after-stop", verifyId = "resume-verification";
+  const retry = command(verifyId, verify);
+  const currentGrant = await db.directoryGrant.findUniqueOrThrow({ where: { id: grant.id } });
+  let previousSession = "";
+  const continued = await answer(chat.id, FLASH, [...await loadHistory(chat.id), user("continue-registration", "Continue the verification without registering again.")], [
+    { call: command(inspect, process.platform === "win32" ? "Get-ChildItem -Name" : "ls") },
+    { call: retry, beforeReply: async () => {
+      const inspection = bodies.at(-1)!.messages.find(message => message.tool_call_id === inspect);
+      previousSession = JSON.parse(inspection!.content!).id;
+      Object.assign(retry.args, { binding: { sessionId: previousSession, grantId: grant.id, cwd: currentGrant.realPath, revision: currentGrant.updatedAt.toISOString() } });
+    } },
+    { text: "Verified REG-63." },
+  ]);
+  assert.ok(previousSession);
+  assert.equal(existsSync(receipt), true, "the resumed verification created its receipt instead of being refused as already executed");
+  assert.equal(readFileSync(receipt, "utf8"), "VERIFIED REG-63\n");
+  assert.equal(readFileSync(ledger, "utf8"), "REG-63\n");
+  const evidence = continued.at(-1)!.messages.find(message => message.tool_call_id === verifyId);
+  const result = JSON.parse(evidence!.content!);
+  assert.equal(result.status, "completed");
+  assert.notEqual(result.id, previousSession);
+  for (const request of continued) for (const message of request.messages) for (const call of message.tool_calls ?? []) {
+    if (call.function.name !== "runTerminalCommand") continue;
+    const args = JSON.parse(call.function.arguments);
+    assert.equal(args.binding, undefined, "historical terminal bindings stay server-side");
+    assert.equal(args.autoReview, undefined);
+  }
+});
+
+test("an approved terminal command keeps its original session and cannot execute twice", async () => {
+  await configureHistoryModels();
+  const folder = mkdtempSync(join(root, "approved-registration-"));
+  copyFileSync(registrationFixture, join(folder, "registration.cjs"));
+  const grant = await createGrant({ path: folder });
+  const chat = await db.chat.create({ data: { title: "Approve registration", workspaceGrantId: grant.id, approvalRule: "ask" } });
+  const toolCallId = "approval-register-once";
+  await answer(chat.id, FLASH, [user("approval-register", "Register once after approval.")], [
+    { call: { id: toolCallId, name: "runTerminalCommand", args: { grantId: grant.id, command: `${nodeInTerminal} ./registration.cjs apply` } } },
+  ]);
+  const history = await loadHistory(chat.id);
+  const pending = history.at(-1)?.parts.find(part => part.type === "tool-runTerminalCommand" && "state" in part && part.state === "approval-requested");
+  assert.ok(pending && "input" in pending && "approval" in pending);
+  const sessionId = (pending.input as { binding: { sessionId: string } }).binding.sessionId;
+  const ledger = join(folder, "ledger.txt");
+  assert.equal(existsSync(ledger), false);
+  Object.assign(pending, { state: "approval-responded", approval: { ...pending.approval, approved: true } });
+  const [resumed] = await answer(chat.id, FLASH, history, [{ text: "Registered REG-63." }]);
+  const result = resumed.messages.find(message => message.tool_call_id === toolCallId);
+  assert.equal(JSON.parse(result!.content!).id, sessionId);
+  const attempts = bodies.length;
+  const replay = await postChat(chat.id, FLASH, history);
+  assert.equal(replay.status, 409);
+  assert.equal(bodies.length, attempts);
+  assert.equal(readFileSync(ledger, "utf8"), "REG-63\n");
+});
+
+test("non-streaming terminal calls also discard approval state at the model boundary", async () => {
+  await configureHistoryModels();
+  const name = "runTerminalCommand";
+  const command = { grantId: "test-workspace", command: "Write-Output 'existing text'", timeoutSeconds: 42 };
+  const original = { ...command, binding: { sessionId: "old-session" }, autoReview: { decision: "allow", reason: "previous review" } };
+  script = [{ call: { id: "new-command", name, args: original } }];
+  const result = await getChatModel(FLASH).doGenerate({ prompt: [
+    { role: "assistant", content: [{ type: "tool-call", toolCallId: "earlier-command", toolName: name, input: original }] },
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "earlier-command", toolName: name, output: { type: "text", value: "existing text" } }] },
+    { role: "user", content: [{ type: "text", text: "Run a new command." }] },
+  ] });
+  const sent = paired(bodies.at(-1)!, "earlier-command").tool_calls?.[0];
+  assert.deepEqual(JSON.parse(sent!.function.arguments), command);
+  const call = result.content.find(part => part.type === "tool-call");
+  assert.ok(call);
+  assert.deepEqual(JSON.parse(call.input), command);
+  assert.equal(original.binding.sessionId, "old-session");
+});
+
+test("project instructions follow the authorized workspace and are measured separately", async () => {
+  await configureHistoryModels();
+  const folder = realpathSync.native(mkdtempSync(join(root, "instructions-")));
+  const otherFolder = realpathSync.native(mkdtempSync(join(root, "other-")));
+  const instructions = join(folder, "AGENTS.md");
+  const grant = await createGrant({ path: folder });
+  const other = await createGrant({ path: otherFolder });
+  const chat = await db.chat.create({ data: { title: "Project instructions", approvalRule: "full" } });
+  let sequence = 0;
+  const send = async () => (await answer(chat.id, FLASH, [...await loadHistory(chat.id), user(`project-${++sequence}`, "Check the project.")], [{ text: "Checked." }]))[0];
+  const select = (workspaceGrantId: string | null) => db.chat.update({ where: { id: chat.id }, data: { workspaceGrantId } });
+  const report = async () => latestContextReport(await loadHistory(chat.id));
+
+  writeFileSync(instructions, "PROJECT-GUIDANCE-ONE");
+  writeFileSync(join(otherFolder, "AGENTS.md"), "PROJECT-GUIDANCE-TWO");
+  assert.doesNotMatch(JSON.stringify(await send()), /PROJECT-GUIDANCE/);
+  await select(grant.id);
+  const first = await send();
+  assert.equal(JSON.stringify(first).split("PROJECT-GUIDANCE-ONE").length - 1, 1);
+  assert.match(first.messages.find(message => message.role === "system")?.content ?? "", /PROJECT-GUIDANCE-ONE/);
+  assert.ok((await report())!.breakdown!.projectInstructions! > 0);
+
+  writeFileSync(instructions, "PROJECT-GUIDANCE-UPDATED");
+  const updated = JSON.stringify(await send());
+  assert.match(updated, /PROJECT-GUIDANCE-UPDATED/);
+  assert.doesNotMatch(updated, /PROJECT-GUIDANCE-ONE/);
+  unlinkSync(instructions);
+  assert.doesNotMatch(JSON.stringify(await send()), /PROJECT-GUIDANCE/);
+  assert.equal((await report())?.breakdown?.projectInstructions, undefined);
+
+  const long = `  Start of project guidance\n${"Use the workspace terminology.\r\n".repeat(350)}End of project guidance\n`;
+  assert.ok(Buffer.byteLength(long) > 8192);
+  writeFileSync(instructions, long);
+  const prompt = (await send()).messages.find(message => message.role === "system")?.content ?? "";
+  assert.equal(JSON.parse(prompt.slice(prompt.lastIndexOf("\n") + 1)).instructions, long, "the complete file reaches the provider");
+  truncateSync(instructions, LOCAL_FILE_LIMITS.fileBytes + 1);
+  const attempts = bodies.length;
+  const refused = await postChat(chat.id, FLASH, [...await loadHistory(chat.id), user("project-over-file-limit", "Check the project.")]);
+  assert.equal(refused.status, 413);
+  const refusal = await refused.json();
+  assert.equal(refusal.error.code, "PAYLOAD_TOO_LARGE");
+  assert.match(refusal.error.message, /AGENTS\.md.*通用文件读取上限|AGENTS\.md.*general file-read limit/);
+  assert.equal(bodies.length, attempts);
+  unlinkSync(instructions);
+  rmdirSync(folder);
+  symlinkSync(otherFolder, folder, "junction");
+  assert.doesNotMatch(JSON.stringify(await send()), /PROJECT-GUIDANCE-TWO/);
+  assert.equal((await report())?.projectInstructionsStatus, "unreadable");
+
+  await select(other.id);
+  assert.match(JSON.stringify(await send()), /PROJECT-GUIDANCE-TWO/);
+  await revokeGrant(other.id);
+  assert.doesNotMatch(JSON.stringify(await send()), /PROJECT-GUIDANCE/);
+});
+
+test("reading the active AGENTS.md version sends its range without a second copy of the text", async () => {
+  await configureHistoryModels();
+  const folder = mkdtempSync(join(root, "project-read-"));
+  const file = join(folder, "AGENTS.md");
+  const original = "ORIGINAL-PROJECT-TERMS", changed = "CHANGED-PROJECT-TERMS";
+  writeFileSync(file, `# Scope\n${original}\n`);
+  const grant = await createGrant({ path: folder });
+  const chat = await db.chat.create({ data: { title: "Read project instructions", workspaceGrantId: grant.id, approvalRule: "full" } });
+  const read = (id: string) => ({ id, name: "readProjectFile", args: { grantId: grant.id, path: "AGENTS.md", startLine: 2, lineCount: 1 } });
+  const first = await answer(chat.id, FLASH, [user("read-project-scope", "Read line two of the instructions.")], [
+    { call: read("read_same") }, { beforeReply: async () => writeFileSync(file, `# Scope\n${changed}\n`), call: read("read_changed") }, { text: "Read both versions." },
+  ]);
+  const visible = (request: typeof bodies[number], id: string) => JSON.parse(request.messages.find(message => message.tool_call_id === id)!.content!);
+  const reference = visible(first[1], "read_same");
+  assert.deepEqual([reference.path, reference.startLine, reference.endLine, reference.nextLine], ["AGENTS.md", 2, 2, null]);
+  assert.match(reference.hash, /^[a-f0-9]{16}$/);
+  assert.equal(JSON.stringify(first[1]).split(original).length - 1, 1);
+  assert.match(JSON.stringify(visible(first[2], "read_changed")), new RegExp(changed));
+
+  const history = await loadHistory(chat.id);
+  assert.match(JSON.stringify(history), new RegExp(original), "the raw result is still in the saved record");
+  const [later] = await answer(chat.id, FLASH, [...history, user("compare-project-scope", "Compare the two checks.")], [{ text: "Compared." }]);
+  assert.equal(JSON.stringify(later).split(changed).length - 1, 1);
+  assert.match(JSON.stringify(visible(later, "read_same")), new RegExp(original), "the earlier version remains evidence");
+  assert.equal(visible(later, "read_changed").hash.length, 16);
+});
+
+test("project instructions keep their full content while the preceding exchange is compacted", async () => {
+  const settings = await configureHistoryModels();
+  const modelKey = `${FLASH.providerId}:${FLASH.modelId}`;
+  settings.contextLimits[modelKey] = { contextLength: 65_000, maxOutputTokens: 2048 };
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  await db.modelContextCalibration.deleteMany({ where: { modelKey } });
+  const folder = mkdtempSync(join(root, "project-fold-"));
+  const instructions = `PROJECT-GUIDANCE-START\n${"0".repeat(21_000)}\nPROJECT-GUIDANCE-END\n`;
+  writeFileSync(join(folder, "AGENTS.md"), instructions);
+  const grant = await createGrant({ path: folder });
+  const chat = await db.chat.create({ data: { title: "Project instructions and history", workspaceGrantId: grant.id } });
+  const older = `HISTORICAL-DETAIL\n${"1".repeat(40_000)}`;
+  const history: UIMessage[] = [user("project-history", older), { id: "project-history-reply", role: "assistant", parts: [{ type: "text", text: "Acknowledged." }] }];
+  const requests = await answer(chat.id, FLASH, [...history, user("project-current", "Check the current project task.")], [
+    { text: "We acknowledged the earlier detail." }, { text: "Checked the project." },
+  ]);
+  assert.equal(requests.length, 2);
+  assert.match(JSON.stringify(requests[0]), /HISTORICAL-DETAIL/);
+  assert.doesNotMatch(JSON.stringify(requests[0]), /PROJECT-GUIDANCE/);
+  const prompt = requests[1].messages.find(message => message.role === "system")?.content ?? "";
+  assert.equal(JSON.parse(prompt.slice(prompt.lastIndexOf("\n") + 1)).instructions, instructions);
+  assert.match(JSON.stringify(requests[1]), /We acknowledged the earlier detail/);
+  assert.doesNotMatch(JSON.stringify(requests[1]), /HISTORICAL-DETAIL/);
+  assert.ok((latestContextReport(await loadHistory(chat.id))?.compactions ?? 0) >= 1);
+});
+
+test("a fallback with insufficient room receives no partial project instructions", async () => {
+  const settings = await configureHistoryModels(PRO);
+  settings.contextLimits[`${PRO.providerId}:${PRO.modelId}`] = { contextLength: 16_000, maxOutputTokens: 2048 };
+  await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+  const folder = mkdtempSync(join(root, "project-fallback-"));
+  writeFileSync(join(folder, "AGENTS.md"), `FALLBACK-PROJECT\n${"0".repeat(25_000)}`);
+  const grant = await createGrant({ path: folder });
+  const chat = await db.chat.create({ data: { title: "Tight fallback", workspaceGrantId: grant.id } });
+  const before = bodies.length;
+  script = [{ status: 402 }];
+  const refused = await postChat(chat.id, FLASH, [user("project-fallback", "Check the project.")]);
+  assert.equal(refused.status, 200);
+  assert.match(await refused.text(), /CONTEXT_LIMIT.*AGENTS\.md/);
+  await compactionsSettled();
+  assert.deepEqual(bodies.slice(before).map(body => body.model), [FLASH.modelId]);
+  clearChatDegradations();
+});
+
+test("revoking a workspace while the model is answering blocks a later request with its project instructions", async () => {
+  await configureHistoryModels();
+  const folder = mkdtempSync(join(root, "revoked-"));
+  writeFileSync(join(folder, "AGENTS.md"), "REVOKE-PROJECT-GUIDANCE");
+  const grant = await createGrant({ path: folder });
+  const chat = await db.chat.create({ data: { title: "Revoke project access", workspaceGrantId: grant.id } });
+  const before = bodies.length;
+  script = [{ call: readHistory("call_before_revocation"), beforeReply: async () => { await revokeGrant(grant.id); } }];
+  globalThis.__riaRateLimitStore?.clear();
+  const response = await chatRoute.POST(new NextRequest("http://localhost/api/chat", { method: "POST", headers: { cookie: localAccessCookie(), "content-type": "application/json" },
+    body: JSON.stringify({ chatId: chat.id, model: FLASH, messages: [user("revoke-workspace", "Review the prior conversation.")] }) }));
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /"type":"error"/);
+  await compactionsSettled();
+  assert.equal(bodies.length - before, 1);
+  assert.match(JSON.stringify(bodies[before]), /REVOKE-PROJECT-GUIDANCE/);
+});
 
 test("model switching keeps signed and encrypted reasoning on the original OpenRouter model only", async () => {
   await configureHistoryModels();
@@ -199,7 +464,10 @@ test("model switching keeps signed and encrypted reasoning on the original OpenR
 
 test("a mid-turn fallback uses its own history and persists the provenance of its reply", async () => {
   await configureHistoryModels(CHAT_MODEL_REF);
-  const chat = await db.chat.create({ data: { title: "Mid-turn fallback", approvalRule: "full" } });
+  const folder = mkdtempSync(join(root, "fallback-"));
+  writeFileSync(join(folder, "AGENTS.md"), "FALLBACK-PROJECT-GUIDANCE");
+  const grant = await createGrant({ path: folder });
+  const chat = await db.chat.create({ data: { title: "Mid-turn fallback", approvalRule: "full", workspaceGrantId: grant.id } });
   await answer(chat.id, CHAT_MODEL_REF, [user("fallback-history", "Prior reference.")], [
     { details: [signed], call: readHistory("call_old_router") }, { text: "Prior answer." },
   ]);
@@ -210,6 +478,7 @@ test("a mid-turn fallback uses its own history and persists the provenance of it
     { text: "Fallback finished." },
   ]);
   assert.deepEqual(turn.map(item => item.model), [FLASH.modelId, FLASH.modelId, CHAT_MODEL_REF.modelId, CHAT_MODEL_REF.modelId]);
+  for (const request of turn) assert.equal(JSON.stringify(request).split("FALLBACK-PROJECT-GUIDANCE").length - 1, 1);
   assert.equal(paired(turn[1], "call_primary").reasoning_content, "PRIMARY-PRIVATE");
   assert.ok(paired(turn[2], "call_primary"));
   assert.deepEqual(paired(turn[2], "call_old_router").reasoning_details, [signed], "fallback restores compatible historical reasoning");
@@ -227,10 +496,19 @@ test("approval continuation honors the saved reasoning source and drops client-s
   await configureHistoryModels();
   const question = { questions: [{ question: "Which format?", options: [{ label: "Report" }, { label: "Notes" }] }] };
   for (const target of [FLASH, PRO]) {
-    const chat = await db.chat.create({ data: { title: "Resume " + target.modelId, approvalRule: "ask" } });
-    await answer(chat.id, FLASH, [user("approval-start", "Ask before writing.")], [
+    const originalFolder = mkdtempSync(join(root, "approval-old-"));
+    const currentFolder = mkdtempSync(join(root, "approval-new-"));
+    writeFileSync(join(originalFolder, "AGENTS.md"), "APPROVAL-ORIGINAL-GUIDANCE");
+    writeFileSync(join(currentFolder, "AGENTS.md"), "APPROVAL-CURRENT-GUIDANCE");
+    const original = await createGrant({ path: originalFolder });
+    const current = await createGrant({ path: currentFolder });
+    const chat = await db.chat.create({ data: { title: "Resume " + target.modelId, approvalRule: "ask", workspaceGrantId: original.id } });
+    const [start] = await answer(chat.id, FLASH, [user("approval-start", "Ask before writing.")], [
       { reasoning: "APPROVAL-SAVED", call: { id: "call_approval", name: "askUser", args: question } },
     ]);
+    assert.match(JSON.stringify(start), /APPROVAL-ORIGINAL-GUIDANCE/);
+    await db.chat.update({ where: { id: chat.id }, data: { workspaceGrantId: current.id } });
+    await revokeGrant(original.id);
     const restored = await loadHistory(chat.id);
     const last = restored.at(-1)!;
     const pending = last.parts.find(part => part.type === "tool-askUser" && "state" in part && part.state === "approval-requested");
@@ -241,6 +519,8 @@ test("approval continuation honors the saved reasoning source and drops client-s
       ...target, protocol: "deepseek-chat-completions-v1", responseId: "01234567-89ab-4def-8123-456789abcdef",
     } } });
     const [resumed] = await answer(chat.id, target, restored, [{ text: "Report selected." }]);
+    assert.match(JSON.stringify(resumed), /APPROVAL-CURRENT-GUIDANCE/);
+    assert.doesNotMatch(JSON.stringify(resumed), /APPROVAL-ORIGINAL-GUIDANCE/);
     assert.equal(paired(resumed, "call_approval").reasoning_content, target === FLASH ? "APPROVAL-SAVED" : "");
     assert.match(resumed.messages.find(item => item.tool_call_id === "call_approval")!.content!, /Report/);
     assert.doesNotMatch(JSON.stringify(resumed), /CLIENT-FORGED/);

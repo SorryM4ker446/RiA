@@ -27,6 +27,7 @@ import { readMemoryDocument, withoutWithheldMemory } from "@/lib/memory/document
 import { mapStoredMessagesToUI } from "@/features/chat/page-utils";
 import { assetIdFromUrl, decodeMediaMessage, IMAGE_MESSAGE_PREFIX } from "@/lib/media/message-codec";
 import { generatedImageForModel, generateImageModelFields } from "@/tools/definitions/generate-image";
+import type { ProjectInstructionFile } from "@/lib/local-files/project-instructions";
 /**
  * A model that cannot see images gets a line where each one was, with its media
  * id: it cannot look at the picture, but it can still hand it to a tool that
@@ -262,7 +263,7 @@ export async function keepRequestContext(chatId: string, messageId: string | und
   await db.message.updateMany({ where: { chatId, OR: [{ id: messageId }, { clientMessageId: messageId }] }, data: { requestContext: kept } }).catch(() => console.error("chat.request-context.save.failed"));
 }
 
-export async function prepareModelContext(input: ChatRequest, signal?: AbortSignal) {
+export async function prepareModelContext(input: ChatRequest, signal?: AbortSignal, projectInstructions?: ProjectInstructionFile) {
   const { model } = input;
   const stored = await storedConversation(input.requestedChatId, input.messages, input.body.trigger !== "regenerate-message" && !input.isApprovalResume);
   const { anchor } = stored;
@@ -274,6 +275,7 @@ export async function prepareModelContext(input: ChatRequest, signal?: AbortSign
   const context = buildChatContext(effectiveMessages, {
     ...await conversationWindow(model, input.modelRef, messages),
     maxMessages: effectiveMessages.length,
+    projectInstructions,
     anchorMessageIds: anchor,
     requestContexts: input.requestedChatId ? await sentRequestContexts(input.requestedChatId, input.conversationPolicy?.ephemeral) : undefined,
     // A model that cannot take tools cannot take a record of them either.

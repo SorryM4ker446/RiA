@@ -132,9 +132,20 @@ test("a template allowing the terminal describes its file tools truthfully and a
 
   const saved = await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" } });
   const edit = decodePersistedAssistantToolMessage(saved.content)!.tools[0];
-  const resumed = await route.POST(request({ chatId: chat.id, messages: [user, { id: saved.clientMessageId ?? saved.id, role: "assistant", parts: [
+  const approval = { chatId: chat.id, messages: [user, { id: saved.clientMessageId ?? saved.id, role: "assistant", parts: [
     { type: "tool-editProjectFile", toolCallId: edit.toolCallId, state: "approval-responded", input: edit.input, approval: { id: edit.approval!.id, approved: true } },
-  ] }] }));
+  ] }] };
+  writeFileSync(join(root, "AGENTS.md"), "0".repeat(1_000_000));
+  const refused = await route.POST(request(approval));
+  assert.equal(refused.status, 413);
+  const failure = await refused.json();
+  assert.equal(failure.error.code, "CONTEXT_LIMIT");
+  assert.match(failure.error.message, /AGENTS\.md/);
+  assert.equal(calls.length, 1, "the approval cannot send a provider request");
+  assert.equal(readFileSync(join(root, "README.md"), "utf8"), "# Old title\n");
+
+  writeFileSync(join(root, "AGENTS.md"), "Use a single H1 in the readme.\n");
+  const resumed = await route.POST(request(approval));
   assert.equal(resumed.status, 200, "the template that offered the edit also allows approving it");
   assert.match(await wireText(resumed), /Renamed\./);
   assert.equal(readFileSync(join(root, "README.md"), "utf8"), "# New title\n");

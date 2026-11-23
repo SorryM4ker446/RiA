@@ -12,6 +12,7 @@ const { encodePersistedAssistantToolMessage, decodePersistedAssistantToolMessage
 const { saveChatMessage, claimToolApproval } = await import("@/lib/chat/store");
 const { prepareChatPersistence } = await import("@/lib/chat/persistence");
 const { startRun, finishRun, checkRunAllowance, reconcileInterruptedRuns, recordStep } = await import("@/lib/agent/runs");
+const { readRestartEvidence } = await import("@/lib/chat/restart-evidence");
 const { saveKnowledgeEntry } = await import("@/lib/knowledge/entries");
 const { reindexStaleEmbeddings, currentEmbeddingRef } = await import("@/lib/knowledge/entry-reindex");
 const { defaultModelPreferences } = await import("@/lib/models/preferences-schema");
@@ -167,6 +168,41 @@ test("a run left behind by an earlier process is still reconciled as interrupted
   assert.equal(stored.status, "paused");
   assert.equal(stored.stopReason, "interrupted-by-restart");
   assert.equal((await db.agentStep.findUnique({ where: { id: step.id } })).state, "cancelled");
+});
+
+test("restart evidence distinguishes recorded results, unstarted approvals and unknown outcomes within the next turn and workspace", async () => {
+  const chat = await db.chat.create({ data: { title: "Interrupted work" } });
+  const started = Date.now() - 3_600_000;
+  await db.message.create({ data: { chatId: chat.id, role: "user", content: "Update the report and notify me", createdAt: new Date(started - 1_000) } });
+  const run = await db.agentRun.create({ data: { chatId: chat.id, goal: "Update the report and notify me", startedAt: new Date(started) } });
+  await recordStep({ runId: run.id, position: 1, kind: "tool", toolName: "editProjectFile", state: "done", finished: true,
+    input: { grantId: "report-folder", path: "report.md", binding: "private-binding" }, output: { hash: "saved-hash", path: "report.md" } });
+  await db.agentStep.update({ where: { runId_position: { runId: run.id, position: 1 } }, data: { toolCallId: "saved-edit" } });
+  await recordStep({ runId: run.id, position: 2, kind: "tool", toolName: "runTerminalCommand", input: { grantId: "report-folder", command: "verify report" } });
+  await recordStep({ runId: run.id, position: 3, kind: "tool", toolName: "createTask", state: "waiting_approval", input: { title: "Notify reviewer" } });
+
+  const restored = await readRestartEvidence(chat.id, "follow-up", "report-folder", []);
+  assert.equal(restored?.workspaceId, "report-folder");
+  assert.match(restored!.text, /Step 1 \(editProjectFile\): done.*saved-hash/);
+  assert.match(restored!.text, /Step 2 \(runTerminalCommand\): interrupted; outcome unknown/);
+  assert.match(restored!.text, /Step 3 \(createTask\): interrupted before execution/);
+  assert.doesNotMatch(restored!.text, /private-binding/);
+
+  const elsewhere = await readRestartEvidence(chat.id, "follow-up", "another-folder", []);
+  assert.match(elsewhere!.text, /Notify reviewer/);
+  assert.doesNotMatch(elsewhere!.text, /report\.md|saved-hash|verify report/);
+  assert.equal(elsewhere!.workspaceId, undefined);
+  const editResult = { role: "tool" as const, content: [{ type: "tool-result" as const, toolCallId: "saved-edit", toolName: "editProjectFile", output: { type: "text" as const, value: "Visible edit result" } }] };
+  const originalRequest = { role: "user" as const, content: "Update the report and notify me" };
+  const followUp = { role: "user" as const, content: "Continue the report" };
+  const alreadyVisible = await readRestartEvidence(chat.id, "follow-up", "report-folder", [originalRequest, editResult, followUp]);
+  assert.doesNotMatch(alreadyVisible!.text, /saved-hash/);
+  const reusedCallId = await readRestartEvidence(chat.id, "follow-up", "report-folder", [editResult, originalRequest, followUp]);
+  assert.match(reusedCallId!.text, /saved-hash/);
+
+  await db.message.create({ data: { chatId: chat.id, role: "user", content: "A new conversation topic", clientMessageId: "follow-up" } });
+  assert.equal(await readRestartEvidence(chat.id, "later", "report-folder", []), undefined);
+  assert.match((await readRestartEvidence(chat.id, "follow-up", "report-folder", []))!.text, /saved-hash/);
 });
 
 test("an inference never takes the place of a memory the user accepted", async () => {
