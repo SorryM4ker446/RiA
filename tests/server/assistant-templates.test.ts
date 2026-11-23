@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { after, before, beforeEach, test, type TestContext } from "node:test";
 import { NextRequest } from "next/server";
 import { createTestDatabase } from "../helpers/database";
+import { migrationNames } from "../helpers/legacy-workspace";
 import { localAccessCookie } from "../helpers/local-access";
 import { seedTestModelPreferences } from "../helpers/model-library";
 import { languageModel, resetProviderState } from "../helpers/model-provider";
@@ -37,17 +39,47 @@ beforeEach(async (t: TestContext) => {
   globalThis.__riaRateLimitStore?.clear(); cookie = localAccessCookie(); resetProviderState();
   await db.chat.deleteMany({}); await db.assistantTemplate.deleteMany({}); await db.memory.deleteMany({}); await db.knowledgeDocument.deleteMany({}); await db.workspacePreference.deleteMany({});
   await seedTestModelPreferences(db); process.env.OPENROUTER_API_KEY = "offline-fixture-placeholder";
-  // Every test starts from the defaults as first shipped.
+  // Every test starts from the current defaults.
   await restoreDefaultAssistants();
 });
 after(async () => { await db.$disconnect(); cleanup(); });
 
 test("the migration writes the defaults exactly as they are defined", () => {
   const expected = DEFAULT_ASSISTANTS.map(template => ({ id: template.id, config: template.config, revision: template.revision }));
-  // The migration's rows still hold the retrieval settings templates had then; read as the app reads them, they match.
+  // The migrated rows still hold the original retrieval settings. The app ignores them.
   const read = migrated.map(row => ({ ...row, config: JSON.parse(JSON.stringify(assistantConfigSchema.parse(row.config))) }));
-  assert.ok(migrated.every(row => "retrieval" in (row.config as object)), "the shipped migration is unchanged");
+  assert.ok(migrated.every(row => "retrieval" in (row.config as object)));
   assert.deepEqual(read.sort((a, b) => a.id.localeCompare(b.id)), [...expected].sort((a, b) => a.id.localeCompare(b.id)));
+});
+
+test("upgrading built-in instructions preserves user-edited templates, deletions and conversation snapshots", () => {
+  const migration = "20261129100000_builtin_assistant_instructions";
+  const sql = (name: string) => readFileSync(new URL(`../../src/db/migrations/${name}/migration.sql`, import.meta.url), "utf8");
+  const sqlite = new DatabaseSync(":memory:");
+  try {
+    for (const name of migrationNames().filter(name => name < migration)) sqlite.exec(sql(name));
+    const templates = () => sqlite.prepare("SELECT id, config, revision FROM assistant_templates ORDER BY id").all();
+    const oldKnowledge = templates().find(row => row.id === "builtin_knowledge")!;
+    const snapshot = JSON.stringify({ ...JSON.parse(String(oldKnowledge.config)), templateId: oldKnowledge.id, templateRevision: oldKnowledge.revision });
+    sqlite.prepare("INSERT INTO chats (id, title, assistantConfig, updatedAt) VALUES ('existing', 'Existing chat', ?, 0)").run(snapshot);
+    sqlite.exec(`UPDATE assistant_templates SET config = json_set(config, '$.name', 'Edited writing'), revision = revision + 1 WHERE id = 'builtin_writing';
+      DELETE FROM assistant_templates WHERE id = 'builtin_research';`);
+    const edited = templates().find(row => row.id === "builtin_writing");
+
+    sqlite.exec(sql(migration));
+    const updated = templates();
+    for (const id of ["builtin_knowledge", "builtin_coding"]) {
+      const row = updated.find(item => item.id === id)!;
+      const expected = DEFAULT_ASSISTANTS.find(item => item.id === id)!;
+      assert.equal(row.revision, expected.revision);
+      assert.equal(JSON.stringify(assistantConfigSchema.parse(JSON.parse(String(row.config)))), JSON.stringify(expected.config));
+    }
+    assert.deepEqual(updated.find(row => row.id === "builtin_writing"), edited);
+    assert.equal(updated.some(row => row.id === "builtin_research"), false);
+    assert.equal(sqlite.prepare("SELECT assistantConfig FROM chats WHERE id = 'existing'").get()?.assistantConfig, snapshot);
+    sqlite.exec(sql(migration));
+    assert.deepEqual(templates(), updated);
+  } finally { sqlite.close(); }
 });
 
 test("default templates can be edited, deleted and restored, and custom updates reject stale revisions", async () => {
@@ -107,19 +139,19 @@ test("updated built-in agent guidance preserves old snapshots until the user rea
   const templates = await listAssistants();
   const coding = templates.find(template => template.id === "builtin_coding")!;
   const research = templates.find(template => template.id === "builtin_research")!;
-  assert.equal(coding.revision, 4);
-  assert.equal(research.revision, 3);
-  assert.match(coding.config.instructions, /make the smallest coherent change/);
+  assert.equal(coding.revision, 5);
+  assert.equal(research.revision, 4);
+  assert.match(coding.config.instructions, /checks that exercise the affected behavior/);
   // How the terminal is used, approval modes included, is in the system prompt whenever the terminal is offered.
   assert.doesNotMatch(coding.config.instructions, /terminalApprovalMode|runTerminalCommand/);
   assert.doesNotMatch(coding.config.instructions, /obtain approval for every terminal command/);
   const knowledge = templates.find(template => template.id === "builtin_knowledge")!;
-  assert.equal(knowledge.revision, 3);
-  assert.match(knowledge.config.instructions, /Search the knowledge base with searchKnowledge before answering/);
+  assert.equal(knowledge.revision, 4);
+  assert.match(knowledge.config.instructions, /When the question depends on the user's materials, search their knowledge base/);
   assert.doesNotMatch(knowledge.config.instructions, /evidence sent with the request/, "nothing reaches the model unless it searches");
   // Citing and preserving evidence is a system rule; the template does not repeat it.
   assert.doesNotMatch(knowledge.config.instructions, /conditions, exceptions/);
-  assert.match(research.config.instructions, /only when it prevents research the user requested/);
+  assert.match(research.config.instructions, /prefer original sources/);
   assert.doesNotMatch(research.config.instructions, /Disclose missing or unavailable searches/);
   const oldSnapshot = { ...research.config, instructions: "Older research instructions", templateId: research.id, templateRevision: 1 };
   const chat = await db.chat.create({ data: { title: research.config.name, assistantConfig: oldSnapshot } });
@@ -171,6 +203,23 @@ test("chat uses template instructions without memory, forbidden tools or added k
   await response.text();
   const call = languageModel.doStreamCalls.at(-1)!;
   const prompt = JSON.stringify(call.prompt); assert.match(prompt, /Only apply documented financial rules/); assert.doesNotMatch(prompt, /医疗机密|私有记忆/); assert.ok(!call.tools?.length);
+});
+
+test("each built-in adds only its own instructions to a regular chat request", async () => {
+  for (const template of DEFAULT_ASSISTANTS) {
+    const chat = await createChat({ assistantTemplateId: template.id });
+    const response = await routes.chat.POST(request("/api/chat", "POST", { chatId: chat.id, messages: [
+      { id: "user-turn", role: "user", parts: [{ type: "text", text: "Give me one short name for a fictional town." }] },
+    ] }));
+    assert.equal(response.status, 200);
+    await response.text();
+    const call = languageModel.doStreamCalls.at(-1)!;
+    const system = call.prompt.flatMap(message => message.role === "system" ? [message.content] : []).join("\n");
+    assert.equal(system.split(template.config.instructions).length, 2);
+    assert.doesNotMatch(system, /fictional town/);
+    for (const other of DEFAULT_ASSISTANTS.filter(item => item.id !== template.id)) assert.ok(!system.includes(other.config.instructions));
+    assert.ok(call.tools?.some(tool => tool.type === "function" && tool.name === "searchKnowledge"));
+  }
 });
 
 test("bound models reject client overrides and removed models cannot be used by templates", async () => {

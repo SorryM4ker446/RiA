@@ -42,8 +42,7 @@ export async function saveAssistant(input: AssistantConfig, id?: string, revisio
   });
 }
 /**
- * Puts back the defaults that are missing, as they were first shipped. A
- * default that is still there keeps the user's edits; only deleted ones return.
+ * Restores missing defaults at their current shipped revision.
  */
 export async function restoreDefaultAssistants() {
   return db.$transaction(async tx => {

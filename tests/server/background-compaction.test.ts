@@ -1208,7 +1208,7 @@ test("the rules for writing a summary are not passed off as rules for the conver
 
 test("the model is told to use its judgment on tools unless the user said not to", () => {
   const prompt = buildSystemPrompt(true);
-  assert.match(prompt, /the user does not have to ask/);
+  assert.match(prompt, /the user does not have to ask/i);
   assert.match(prompt, /says in this conversation not to use a tool/);
-  assert.doesNotMatch(buildSystemPrompt(false), /the user does not have to ask/);
+  assert.doesNotMatch(buildSystemPrompt(false), /the user does not have to ask/i);
 });

@@ -221,7 +221,8 @@ test("embedding API requires authentication, explicit confirmation and matching 
 
 test("the rules for relying on search results are stated in the system prompt", () => {
   const prompt = buildSystemPrompt(true) + formatDocumentContext([]);
-  assert.match(prompt, /say when evidence for a requested workspace fact is missing rather than filling the gap/);
+  assert.match(prompt, /say when evidence for a requested workspace fact is missing/);
+  assert.match(prompt, /Leave unresolved details open/);
   assert.match(prompt, /cite it as a Markdown link with the reference's file name and url/);
 });
 

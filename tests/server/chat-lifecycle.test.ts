@@ -141,7 +141,7 @@ test("ordinary chat receives task-oriented agent instructions without empty retr
   await wireText(response);
   const prompt = languageModel.doStreamCalls.at(-1).prompt.find(item => item.role === "system").content;
   assert.match(prompt, /RiA, a local-first desktop AI agent/);
-  assert.match(prompt, /carry authorized work through/);
+  assert.match(prompt, /When the user delegates work, carry it through within the requested scope/);
   // No folder is terminal-enabled here, so the terminal is named once as unavailable and its instructions stay out.
   assert.doesNotMatch(prompt, /approval rule, stated with the workspace, decides whether edits and commands wait for approval/);
   assert.equal(prompt.split("runTerminalCommand").length - 1, 1);

@@ -17,6 +17,7 @@ const { indexDocument } = await import("@/lib/documents/store");
 const { encodeDocumentScope } = await import("@/lib/documents/scope");
 const { saveKnowledgeEntry, getRelevantEntries } = await import("@/lib/knowledge/entries");
 const { withRequestContext, buildRequestContext, REQUEST_CONTEXT_HEADER } = await import("@/lib/chat/model-context");
+const { ASSISTANT_BASE_PROMPT } = await import("@/lib/prompts");
 const { installPlugin, setPluginState } = await import("@/lib/plugins/store");
 const { parsePlugin } = await import("@/lib/plugins/schema");
 const { pluginFixture } = await import("../helpers/plugin-fixture");
@@ -69,6 +70,9 @@ test("the system prompt stays identical across turns while each turn's context c
   await send({ messages: history });
   const second = lastPrompt();
   assert.equal(systemOf(second), systemOf(first), "nothing turn-specific lives in the system prompt");
+  assert.ok(systemOf(second).startsWith(ASSISTANT_BASE_PROMPT));
+  assert.equal(systemOf(second).split(ASSISTANT_BASE_PROMPT).length, 2, "shared guidance appears once");
+  assert.doesNotMatch(systemOf(second), /Write a haiku|Frankfurt|\[Conversation assistant:/);
   const earlierUser = second.filter(message => message.role === "user").at(-2);
   assert.equal(textOf(earlierUser), "Which region do production deploys use?", "an earlier turn is sent exactly as before");
 });
