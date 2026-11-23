@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, BellRing, MessageSquareText, MoreHorizontal, Pause, PencilLine, Play, Plus, Sparkles, Square, Trash2 } from "lucide-react";
+import { Archive, BellRing, Info, MessageSquareText, MoreHorizontal, Pause, PencilLine, Play, Plus, Sparkles, Square, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -138,7 +138,12 @@ export default function TasksPage() {
         description={t("tasks.description")}
         actions={<Button size="sm" onClick={() => setEditing({ task: null })}><Plus data-icon="inline-start" aria-hidden="true" />{t("tasks.create")}</Button>}
       />
-      {!automatic ? <p className="-mt-2 text-xs text-warning">{t("tasks.notAutomatic")}</p> : null}
+      {!automatic ? (
+        <div role="note" className="page-notice -mt-2" data-tone="warning">
+          <Info aria-hidden="true" />
+          <p>{t("tasks.notAutomatic")}</p>
+        </div>
+      ) : null}
       <Reveal className="-mt-6">{error ?? loadError ? <p role="alert" className="mt-6 rounded-lg bg-destructive/5 p-3 text-sm text-destructive shadow-hairline">{localizeMessage((error ?? loadError)!)}</p> : null}</Reveal>
 
       {/* Loading takes the same box as the empty list, so nothing below it moves when the list arrives. */}

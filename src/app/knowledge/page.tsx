@@ -12,7 +12,7 @@ import { FormEvent, Suspense, useEffect, useRef, useState, type ReactNode } from
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAwaitingFirstLoad } from "@/lib/use-awaiting-first-load";
-import { BookOpen, Check, ChevronRight, MoreHorizontal, PencilLine, Plus, Search, Trash2, Upload } from "lucide-react";
+import { AlertCircle, BookOpen, Check, ChevronRight, MoreHorizontal, PencilLine, Plus, Search, Trash2, Upload } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHeader } from "@/components/layout/page-header";
@@ -503,7 +503,12 @@ function KnowledgeWorkspace() {
           </form>
           {/* Which search the list shows: after a failed search, the box holds the new words while the list still answers the old ones. */}
           {entryPage.q ? <p className="text-xs text-muted-foreground">{t("knowledge.searchApplied")} {entryPage.q}</p> : null}
-          {pageNeedsRefresh && !isLoading ? <p className="text-xs text-warning">{t("knowledge.refreshRequired")}</p> : null}
+          {pageNeedsRefresh && !isLoading ? (
+            <div role="status" className="page-notice" data-tone="warning">
+              <AlertCircle aria-hidden="true" />
+              <p>{t("knowledge.refreshRequired")}</p>
+            </div>
+          ) : null}
           {entryRows(entries, entryPage.q)}
           <nav aria-label={t("knowledge.paginationLabel")} className="flex flex-wrap items-center justify-between gap-2 py-2">
             <Button size="sm" disabled={isLoading || isSaving || pageNeedsRefresh || entryPage.cursors.length === 1} variant="ghost" onClick={() => {

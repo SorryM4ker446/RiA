@@ -40,6 +40,7 @@
   --shadow: 240 10% 8%;
   --selection: 240 6% 90%;
   --surface: 240 6% 98.4%;
+  --rail-bg: 240 5% 97.4%;
   /* A filled control or quiet panel on the workspace surface: one step darker than --surface, so it reads without an outline. */
   --field: 240 5% 94.8%;
   --elevated: 0 0% 100%;
@@ -85,6 +86,7 @@
   --shadow: 225 14% 2%;
   --selection: 225 10% 26%;
   --surface: 225 7% 10.5%;
+  --rail-bg: 225 7% 9.8%;
   --field: 225 6% 14%;
   --elevated: 225 6% 15%;
   --chat-user-bg: 225 6% 17%;
@@ -650,15 +652,17 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 .workspace-shell[data-desktop="true"][data-chat-page="true"] .workspace-main { background: hsl(var(--background) / .88); }
 .workspace-shell[data-desktop="true"] .chat-canvas { background: transparent; }
 .workspace-topbar { border-color: hsl(var(--border)); }
-.workspace-shell .workspace-topbar, .workspace-shell .workspace-rail, .workspace-shell .chat-rail { border-color: transparent; }
+.workspace-shell .workspace-topbar, .workspace-shell .chat-rail { border-color: transparent; }
 .workspace-rail > div > .border-t, .conversation-rail-body > footer { border-color: transparent; }
-.workspace-rail { background: hsl(var(--surface)); border-color: hsl(var(--border)); }
+.workspace-rail { background: hsl(var(--rail-bg)); border-color: transparent; }
 /* Sidebar. The docked rail and its content share `--rail-width`; folding takes the rail to nothing while the
    content keeps its width and slides a little aside, so nothing re-wraps on the way out. Motion is opt-in: a
    change the person makes (fold, pin, a snap while dragging, a reset) sets `data-rail-animating` for its
    duration, and every moving part (rail, title padding, corner button) then moves on one curve. Anything else
    (the pointer during a drag, the window crossing the boundary, the first paint) lands at once. */
-.workspace-rail-docked { width: var(--rail-width, 13rem); overflow: hidden; }
+.workspace-rail-docked { position: relative; width: var(--rail-width, 13rem); overflow: hidden; }
+.workspace-rail-docked::after { content: ""; position: absolute; top: 12px; bottom: 12px; right: 0; width: 1px; pointer-events: none; background: linear-gradient(to bottom, transparent, hsl(var(--border) / .52) 10%, hsl(var(--border) / .52) 90%, transparent); transition: opacity var(--dur-base) var(--ease-out); }
+.dark .workspace-rail-docked::after { background: linear-gradient(to bottom, transparent, hsl(var(--border) / .3) 10%, hsl(var(--border) / .3) 90%, transparent); }
 .workspace-rail-inner { width: var(--rail-width, 13rem); }
 html[data-rail-animating] .workspace-rail-docked { transition: width var(--dur-base) var(--ease-out); }
 html[data-rail-animating] .workspace-rail-inner { transition: opacity var(--dur-base) var(--ease-out), translate var(--dur-base) var(--ease-out); }
@@ -689,6 +693,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
    the same frame, not one frame later. The width matches RAIL_NARROW_QUERY. */
 @media (min-width: 1024px) {
   html[data-rail-collapsed="true"] .workspace-rail-docked { width: 0; }
+  html[data-rail-collapsed="true"] .workspace-rail-docked::after { opacity: 0; }
   html[data-rail-collapsed="true"] .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
   html[data-rail-collapsed="true"]:not([data-rail-dragging]) .rail-resizer { display: none; }
   html[data-rail-collapsed="true"] .workspace-main > .workspace-topbar { padding-left: 52px; }
@@ -699,6 +704,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 }
 @media (max-width: 1023px) {
   html:not([data-rail-pinned="true"]) .workspace-rail-docked { width: 0; }
+  html:not([data-rail-pinned="true"]) .workspace-rail-docked::after { opacity: 0; }
   html:not([data-rail-pinned="true"]) .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
   html:not([data-rail-pinned="true"]):not([data-rail-dragging]) .rail-resizer { display: none; }
   html:not([data-rail-pinned="true"]) .workspace-main > .workspace-topbar { padding-left: 52px; }
@@ -709,7 +715,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 /* The sidebar over the page while folded: the docked rail's twin, so pinning can swap one for the other unseen.
    It slides out on the shared curve and back a little faster. Pinning holds it still and lets its shadow go while
    the rail opens beneath; then it is removed outright. */
-.rail-peek { position: absolute; inset-block: 0; left: 0; z-index: 45; width: var(--rail-width, 13rem); overflow: hidden; background: hsl(var(--surface)); box-shadow: 0 0 0 1px hsl(var(--border) / .6), 16px 0 40px -18px hsl(var(--shadow) / .45); transition: box-shadow var(--dur-base) var(--ease-out); animation: rail-peek-in var(--dur-base) var(--ease-out); }
+.rail-peek { position: absolute; inset-block: 0; left: 0; z-index: 45; width: var(--rail-width, 13rem); overflow: hidden; background: hsl(var(--rail-bg)); box-shadow: 0 0 0 1px hsl(var(--border) / .6), 16px 0 40px -18px hsl(var(--shadow) / .45); transition: box-shadow var(--dur-base) var(--ease-out); animation: rail-peek-in var(--dur-base) var(--ease-out); }
 /* The desktop window treats a drag region as its title bar and stops reporting the pointer there, which would
    read as the pointer leaving. Shown over the page, the sidebar is all page: its header does not drag the window,
    and, coming last, it cuts the top row's drag region away beneath it. */
@@ -1018,24 +1024,45 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
   .thinking-live { animation: none; color: hsl(var(--muted-foreground)); background: none; }
 }
 .chat-transcript-frame[data-navigation="true"] .chat-transcript { padding-inline: 3rem; }
-.chat-user-actions button { width: 28px; height: 28px; }
-.message-navigator { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); display: flex; width: 28px; max-height: min(14rem, calc(100% - 24px)); flex-direction: column; align-items: center; gap: 2px; }
+.chat-user-actions button, .chat-assistant-actions button { width: 28px; height: 28px; color: hsl(var(--muted-foreground)); }
+.chat-user-actions button:hover, .chat-assistant-actions button:hover { color: hsl(var(--foreground)); }
+.chat-user-editor { overflow: hidden; border: 1px solid hsl(var(--ring) / .5); border-radius: 16px; background: hsl(var(--card)); color: hsl(var(--card-foreground)); box-shadow: 0 0 0 3px hsl(var(--ring) / .08), 0 8px 24px -10px hsl(var(--shadow) / .18); animation: pop-in var(--dur-fast) var(--ease-out) both; }
+.chat-user-editor-body { display: flex; flex-direction: column; }
+.chat-user-editor-input { scrollbar-gutter: stable; }
+.chat-user-editor-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 4px 10px 10px; }
+.chat-assistant-actions { margin-left: -6px; }
+.chat-assistant-actions[data-has-fold="true"] { margin-left: -8px; }
+.chat-assistant-actions .answer-fold-toggle { width: auto; height: 28px; margin: 0; }
+.chat-assistant-actions .message-actions { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.chat-assistant-actions .message-actions[data-persistent="true"] { opacity: .6; }
+article:hover .chat-assistant-actions .message-actions,
+article:focus-within .chat-assistant-actions .message-actions,
+.chat-assistant-actions .message-actions:hover { opacity: 1; }
+.chat-jump-latest { position: absolute; left: 50%; bottom: 12px; z-index: 20; translate: -50% 0; pointer-events: none; animation: panel-in-up var(--dur-base) var(--ease-out) both; }
+.chat-jump-latest[data-state="closing"] { animation: jump-latest-out var(--dur-fast) var(--ease-in-out) forwards; }
+.chat-jump-latest-button { pointer-events: auto; border-radius: 999px; background: hsl(var(--popover) / .88); color: hsl(var(--popover-foreground)); box-shadow: 0 0 0 1px hsl(var(--border) / .85), 0 6px 20px -6px hsl(var(--shadow) / .32); backdrop-filter: blur(14px) saturate(1.3); }
+.chat-jump-latest[data-state="closing"] .chat-jump-latest-button { pointer-events: none; }
+.chat-jump-latest-button:hover { background: hsl(var(--popover)); }
+@keyframes jump-latest-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(6px) scale(.97); } }
+@keyframes copy-check-in { from { opacity: 0; transform: scale(.65); } to { opacity: 1; transform: none; } }
+.copy-confirm-icon { animation: copy-check-in var(--dur-fast) var(--ease-spring) both; }
+.message-navigator { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); display: flex; width: 24px; max-height: min(14rem, calc(100% - 24px)); flex-direction: column; align-items: center; gap: 3px; }
 .message-navigator > button { color: hsl(var(--muted-foreground)); }
-.message-nav-control { width: 28px; height: 28px; }
-/* The rail draws no hover plate: the marks themselves answer the pointer. Scoped to the rail so it outranks the
-   ghost button's own hover background. */
-.message-navigator :is(.message-nav-control, .message-nav-mark):hover { background: transparent; }
-.message-nav-track { display: flex; min-height: 0; flex-direction: column; align-items: center; gap: 2px; }
+.message-nav-control { width: 24px; height: 24px; border-radius: var(--radius-inner); }
+.message-nav-control svg { width: 14px; height: 14px; }
+.message-nav-control:hover, .message-nav-control[data-state="open"] { color: hsl(var(--foreground)); }
+/* The rail draws no hover plate on ticks: the ticks themselves answer the pointer. */
+.message-navigator .message-nav-mark:hover { background: transparent; }
+.message-nav-track { display: flex; min-height: 0; flex-direction: column; align-items: center; gap: 1px; }
 .message-nav-marks { display: flex; min-height: 0; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .message-nav-marks::-webkit-scrollbar { display: none; }
-.message-nav-mark { width: 28px; height: 14px; }
-/* Marks grow by scaling a full-length bar, so marking the current place never moves layout. */
-.message-nav-mark > span { display: block; width: 24px; height: 2px; border-radius: 999px; background: hsl(var(--muted-foreground) / .4); transform: scaleX(.5833); transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
-/* Pointing at the rail brings all its marks up a little; the mark pointed at reaches full length and its
-   neighbours lean out after it, like a magnifier passing over a ruler. At rest the rail keeps its short marks. */
-.message-nav-marks:hover > .message-nav-mark > span { background: hsl(var(--muted-foreground) / .6); }
+.message-nav-mark { width: 24px; height: 9px; justify-content: flex-start; padding-left: 4px; }
+/* Left-aligned ruler ticks: scale from the left edge so active and hovered marks extend cleanly without shifting layout. */
+.message-nav-mark > span { display: block; width: 16px; height: 2px; border-radius: 999px; background: hsl(var(--muted-foreground) / .38); transform-origin: left center; transform: scaleX(.5); transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+/* Pointing at the rail gently raises all ticks; the pointed tick extends full length and its neighbours lean out behind it. */
+.message-nav-marks:hover > .message-nav-mark > span { background: hsl(var(--muted-foreground) / .58); }
 .message-nav-mark:is(:hover, :focus-visible) + .message-nav-mark > span,
-.message-nav-mark:has(+ .message-nav-mark:is(:hover, :focus-visible)) > span { transform: scaleX(.75); }
+.message-nav-mark:has(+ .message-nav-mark:is(:hover, :focus-visible)) > span { transform: scaleX(.72); }
 .message-nav-marks > .message-nav-mark:is(:hover, :focus-visible) > span { transform: none; background: hsl(var(--foreground)); }
 .message-nav-marks > .message-nav-mark[aria-current="location"] > span { transform: none; background: hsl(var(--foreground)); }
 /* Frosted glass, the one material for everything that floats over content (menus, pickers, popovers,
@@ -1064,6 +1091,18 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .chat-welcome-title { max-width: 35rem; font-size: clamp(1.5rem, 2.5vw, 2rem); font-weight: 600; line-height: 1.5; letter-spacing: -.035em; text-wrap: balance; }
 .chat-welcome-description { max-width: 29rem; font-size: 14px; line-height: 1.8; color: hsl(var(--muted-foreground)); text-wrap: balance; }
 .chat-dock { background: transparent; }
+.chat-dock > form { margin-top: 0.375rem; }
+.chat-dock-meta { display: inline-flex; max-width: 100%; flex-wrap: wrap; align-items: center; gap: 2px; padding-inline: 2px; }
+.chat-dock-meta:empty { display: none; }
+.chat-dock-meta > .chat-workspace-picker, .chat-dock-meta .run-records > button { height: 26px; padding-inline: 8px; border-radius: var(--radius-inner); font-size: 12px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.chat-dock-meta > .chat-workspace-picker[data-selected="true"] { color: hsl(var(--foreground) / .88); font-weight: 500; }
+.chat-dock-meta > .chat-workspace-picker:hover, .chat-dock-meta .run-records > button:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.chat-dock-meta > .chat-workspace-picker + .run-records { position: relative; margin-left: 4px; padding-left: 6px; }
+.chat-dock-meta > .chat-workspace-picker + .run-records::before { content: ""; position: absolute; left: 0; top: 50%; width: 1px; height: 11px; translate: 0 -50%; background: hsl(var(--border) / .75); pointer-events: none; }
+.chat-dock-tray { display: flex; min-height: 0; max-height: min(22rem, 42dvh); flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
+.chat-dock-tray > .reveal, .chat-dock-tray > .chat-dock-notice { transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out), margin-top var(--dur-base) var(--ease-out); }
+.chat-dock-tray > .reveal[data-state="open"], .chat-dock-tray > .chat-dock-notice[data-state="open"], .chat-dock-tray > .chat-error { margin-top: 0.5rem; }
+.chat-dock-tray > .reveal[data-state="closed"], .chat-dock-tray > .chat-dock-notice[data-state="closed"] { margin-top: 0; }
 .composer-surface { border: 1px solid hsl(var(--input)); border-radius: 18px; background: hsl(var(--card)); box-shadow: 0 4px 24px hsl(var(--shadow) / .05); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
 .composer-surface:focus-within { border-color: hsl(var(--ring) / .6); box-shadow: 0 0 0 3px hsl(var(--ring) / .08), 0 8px 28px hsl(var(--shadow) / .06); }
 .composer-input { scrollbar-gutter: stable; }
@@ -1362,11 +1401,8 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .question-record-a { font-weight: 500; }
 @media (prefers-reduced-motion: reduce) { .question-card { animation: none; } }
 /* The step being worked on, above the composer while the answer runs. */
-.plan-strip { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: min(42rem, 100%); margin: 2px auto 8px; padding: 5px 12px 5px 10px; border-radius: 999px; font-size: 12px; color: hsl(var(--foreground) / .85); background: hsl(var(--popover) / .9); box-shadow: 0 0 0 1px hsl(var(--foreground) / .08), 0 4px 12px -6px hsl(var(--shadow) / .25); animation: content-in var(--dur-base) var(--ease-out); }
+.plan-strip { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: min(42rem, 100%); margin: 2px auto 4px; padding: 5px 12px 5px 10px; border-radius: 999px; font-size: 12px; color: hsl(var(--foreground) / .85); background: hsl(var(--popover) / .9); box-shadow: 0 0 0 1px hsl(var(--foreground) / .08), 0 4px 12px -6px hsl(var(--shadow) / .25); animation: content-in var(--dur-base) var(--ease-out); }
 .plan-strip:hover { background: hsl(var(--popover)); }
-/* A fold in the dock above the composer takes no room while closed: it gives back the dock's gap, smoothly. */
-.chat-dock > .reveal { transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out), margin var(--dur-base) var(--ease-out); }
-.chat-dock > .reveal[data-state="closed"] { margin-bottom: -0.75rem; }
 .plan-strip .task-plan-mark { margin-top: 0; }
 .plan-strip-count { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .task-plan-mark[data-status="in_progress"] { animation: none; border-color: hsl(var(--foreground)); } .plan-strip { animation: none; } }
@@ -1484,9 +1520,6 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
    native select a styled one keeps for forms) would otherwise answer to a box further out, escape the clip
    and leave the page or dialog scrolling over space nothing occupies. */
 .reveal > * { position: relative; }
-/* A closed notice in the chat dock gives back the dock's gap too, so it takes no room until it opens. */
-.chat-dock > .chat-dock-notice { transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out), margin-top var(--dur-base) var(--ease-out); }
-.chat-dock > .chat-dock-notice[data-state="closed"] { margin-top: -0.75rem; }
 .run-detail, .approval-details { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden; transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out); }
 .run-detail[data-state="open"], .approval-details[data-state="open"] { grid-template-rows: 1fr; opacity: 1; visibility: visible; }
 .approval-details .execution-code { max-height: 12rem; }
@@ -1684,10 +1717,11 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 }
 
 
-/* A long earlier answer shows its opening (28rem) and fades out; the toggle unfolds it. */
+/* A long earlier answer shows its opening (28rem) and fades out; the toggle unfolds it smoothly. */
 .answer-fold[data-folded] > .answer-fold-body { max-height: 28rem; overflow: hidden; }
+.answer-fold-body[data-animating] { max-height: none !important; overflow: hidden; transition: height var(--dur-base) var(--ease-out); }
 .answer-fold[data-folded][data-overflows] > .answer-fold-body { mask-image: linear-gradient(to bottom, #000 70%, transparent); }
-.answer-fold-toggle { margin-top: 6px; border-radius: var(--radius-control); padding: 4px 8px; margin-left: -8px; font-size: 12px; font-weight: 500; color: hsl(var(--muted-foreground)); transition: background-color var(--dur-instant) var(--ease-out), color var(--dur-instant) var(--ease-out); }
+.answer-fold-toggle { display: inline-flex; align-items: center; border-radius: var(--radius-inner); padding: 4px 8px; font-size: 12px; font-weight: 500; color: hsl(var(--muted-foreground)); transition: background-color var(--dur-instant) var(--ease-out), color var(--dur-instant) var(--ease-out); }
 .answer-fold-toggle:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 .answer-fold-toggle:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 
@@ -1788,7 +1822,8 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
   .settings-field > [data-slot="field-content"], .settings-field > [data-slot="field-label"] { flex-basis: auto; }
   .settings-field.settings-check-field { flex-direction: row; }
   .workspace-content > main:not(.chat-workspace) { padding: 1.5rem 1rem; }
-  .chat-dock { max-height: 55%; padding: .5rem .75rem .75rem; }
+  .chat-dock { padding: .5rem .75rem .75rem; }
+  .chat-dock-tray { max-height: min(18rem, 36dvh); }
   .chat-welcome-description { font-size: 13px; }
   .chat-welcome [data-slot="empty-content"] { margin-top: .5rem; }
 }
@@ -2014,9 +2049,18 @@ html:not(.dark) :is(.workspace-nav-link[aria-current="page"], .sidebar-chat-row[
 
 /* A picture being made holds the room the picture will take (square, as tall as it will be at most), so it lands in place. */
 .chat-picture-pending { display: flex; width: 100%; aspect-ratio: 1; max-height: 420px; align-items: center; justify-content: center; gap: 8px; border-radius: var(--radius-card); background: hsl(var(--muted) / .6); color: hsl(var(--muted-foreground)); font-size: 13px; }
-.chat-picture-actions-space { height: 2rem; }
-.chat-picture-actions { display: flex; flex-wrap: wrap; align-self: flex-end; justify-content: flex-end; max-width: 100%; gap: 6px; }
-.chat-picture-actions > button { min-width: 7rem; }
-.chat-picture-actions > button:not(:only-child) { flex: 1 0 max-content; }
+.chat-picture-frame { position: relative; width: 100%; overflow: hidden; border-radius: var(--radius-card); }
+.chat-picture-actions { position: absolute; bottom: 8px; right: 8px; z-index: 2; display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--radius-control); background: hsl(var(--popover) / .84); color: hsl(var(--popover-foreground)); box-shadow: 0 0 0 1px hsl(var(--border) / .75), 0 6px 20px -6px hsl(var(--shadow) / .38); backdrop-filter: blur(12px) saturate(1.3); opacity: 0; transform: translateY(2px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.chat-picture-frame:hover .chat-picture-actions, .chat-picture-frame:focus-within .chat-picture-actions { opacity: 1; transform: none; }
+.chat-picture-action { width: 28px; height: 28px; border-radius: var(--radius-inner); color: hsl(var(--popover-foreground)); }
+.chat-picture-action svg { width: 14px; height: 14px; }
+.chat-picture-action:hover { background: hsl(var(--foreground) / .08); }
 .chat-picture-image { animation: overlay-in var(--dur-base) var(--ease-out); }
-@media (prefers-reduced-motion: reduce) { .chat-picture-image { animation: none; } }
+@media (hover: none) { .chat-picture-actions { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .chat-picture-image, .chat-jump-latest, .chat-jump-latest[data-state="closing"], .chat-user-editor, .copy-confirm-icon, .page-notice { animation: none; } .chat-picture-actions, .answer-fold-body[data-animating] { transition: none; transform: none; } }
+
+/* Structured inline notice banner shared across non-chat workspace pages. */
+.page-notice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: var(--radius-control); font-size: 13px; line-height: 1.55; color: hsl(var(--foreground)); background: hsl(var(--field) / .7); box-shadow: inset 0 0 0 1px hsl(var(--border)); animation: row-in var(--dur-base) var(--ease-out) both; }
+.page-notice > svg { width: 15px; height: 15px; margin-top: 2px; flex-shrink: 0; color: hsl(var(--muted-foreground)); }
+.page-notice[data-tone="warning"] { color: hsl(var(--warning)); background: hsl(var(--warning) / .08); box-shadow: inset 0 0 0 1px hsl(var(--warning) / .24); }
+.page-notice[data-tone="warning"] > svg { color: hsl(var(--warning)); }
