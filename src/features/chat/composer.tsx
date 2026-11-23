@@ -30,7 +30,7 @@ import type { ModelLibraryItem } from "@/lib/models/preferences-schema";
 import { ContextUsage } from "@/features/chat/context-usage";
 import { ApprovalRulePicker } from "@/features/chat/approval-rule-picker";
 import { COMPACT_CONTEXT_TOOL } from "@/lib/chat/compact-context";
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type UIEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type UIEvent } from "react";
 import { pendingQuestion } from "./question-card";
 import { TASK_DEFAULT_MODEL } from "@/features/chat/types";
 
@@ -80,6 +80,7 @@ type Props = Pick<
   | "handleTextareaKeyDown"
   | "onTextareaPaste"
   | "textareaRef"
+  | "activeChatId"
   | "input"
   | "onAttachmentInputChange"
   | "fileInputRef"
@@ -140,6 +141,7 @@ export function Composer({
   handleTextareaKeyDown,
   onTextareaPaste,
   textareaRef,
+  activeChatId,
   input,
   onAttachmentInputChange,
   fileInputRef,
@@ -211,6 +213,17 @@ export function Composer({
     ...choice.skills.map(skill => ({ key: `${skill.packageId}:${skill.skillId}`, label: skill.name, icon: SKILL_ICON, remove: () => toggleSkill(skill) })),
   ];
   const choicesRef = useRef<HTMLDivElement>(null);
+  const keepDraftFocus = useRef(false);
+  const bindDraft = useCallback((node: HTMLTextAreaElement | null) => {
+    textareaRef.current = node;
+    if (!node) return;
+    if (keepDraftFocus.current) node.focus({ preventScroll: true });
+    keepDraftFocus.current = false;
+    return () => {
+      keepDraftFocus.current = document.activeElement === node;
+      textareaRef.current = null;
+    };
+  }, [textareaRef]);
   const wordKeys = choiceWords.map(word => `${word.key}:${word.label}`).join("|");
   useLayoutEffect(() => {
     const box = choicesRef.current, input = textareaRef.current;
@@ -230,7 +243,7 @@ export function Composer({
     box.querySelectorAll("[data-choice-word]").forEach(word => observer.observe(word));
     void document.fonts?.ready.then(measure);
     return () => observer.disconnect();
-  }, [wordKeys, textareaRef]);
+  }, [activeChatId, wordKeys, textareaRef]);
   const followScroll = (event: UIEvent<HTMLTextAreaElement>) => { if (choicesRef.current) choicesRef.current.style.transform = `translateY(${-event.currentTarget.scrollTop}px)`; };
   const rememberedModelLabel = useRememberedModelLabel(modelMode);
   const modelLabel = !selectedModel ? t("chat.toolbar.modelNone")
@@ -273,6 +286,8 @@ export function Composer({
           <div className="composer-field">
             {choiceWords.length ? <ComposerChoices ref={choicesRef} words={choiceWords} /> : null}
             <Textarea
+              key={activeChatId ?? "draft"}
+              data-chat-draft
               className="composer-input block h-full min-h-0 w-full resize-none overflow-y-auto rounded-none px-4 py-3 shadow-none focus-visible:ring-0"
               onChange={menu.onChange}
               onKeyDown={menu.onKeyDown}
@@ -292,7 +307,7 @@ export function Composer({
                           ? t("chat.ask.placeholder")
                           : t("chat.composer.placeholderChat")
               }
-              ref={textareaRef}
+              ref={bindDraft}
               rows={3}
               value={input}
               role={menu.open ? "combobox" : undefined}

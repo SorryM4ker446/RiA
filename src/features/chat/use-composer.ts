@@ -4,6 +4,8 @@ import type { ModelLibraryItem, ModelRef } from "@/lib/models/preferences-schema
 import type { ModelMode, UploadableFilePart } from "@/features/chat/page-utils";
 import type { ComposerChoice } from "@/features/chat/use-tools";
 import { MAX_QUEUED, type ComposerDraft, type ConversationSession, type QueuedMessage } from "@/features/chat/conversation-session";
+import { embeddedClipboardImages } from "./clipboard-content";
+import { t, tf } from "@/lib/locale";
 
 type Options = {
   session: ConversationSession;
@@ -25,6 +27,7 @@ type Options = {
   selectedModel: ModelRef | null;
   selectedModelInfo: ModelLibraryItem | undefined;
   appendAttachments: (files: File[]) => void | Promise<void>;
+  setPageError: (message: string) => void;
   onSubmit: (event?: FormEvent<HTMLFormElement>, queued?: QueuedMessage) => Promise<void>;
   onStop: () => void;
 };
@@ -107,9 +110,19 @@ export function useComposer(options: Options) {
       .filter((item) => item.kind === "file")
       .map((item) => item.getAsFile())
       .filter((file): file is File => Boolean(file));
-    if (pastedFiles.length === 0) return;
-    event.preventDefault();
-    void options.appendAttachments(pastedFiles);
+    if (pastedFiles.length > 0) {
+      if (!event.clipboardData.getData("text/plain")) event.preventDefault();
+      void options.appendAttachments(pastedFiles);
+      return;
+    }
+    // The textarea inserts text/plain normally. Inline image bytes from rich
+    // selections go through the same attachment validation and upload path.
+    const embedded = embeddedClipboardImages(event.clipboardData?.getData("text/html") ?? "");
+    if ("error" in embedded) {
+      options.setPageError(tf("chat.composer.pasteImagesRefused", { reason: t(embedded.error) }));
+      return;
+    }
+    if (embedded.files.length) void options.appendAttachments(embedded.files);
   }
 
   function handleTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {

@@ -15,6 +15,12 @@ contextBridge.exposeInMainWorld("riaDesktop", {
     present: (token: string) => ipcRenderer.invoke("desktop:startup:present", token) as Promise<boolean>,
   },
   getRuntimeInfo: () => ipcRenderer.invoke("desktop:runtime:get"),
+  pasteIntoChat: () => {
+    const input = document.activeElement;
+    if (!navigator.userActivation.isActive || !(input instanceof HTMLTextAreaElement)
+      || !input.hasAttribute("data-chat-draft") || input.readOnly || input.disabled) return Promise.resolve(false);
+    return ipcRenderer.invoke("desktop:chat:paste") as Promise<boolean>;
+  },
   openLogsFolder: () => ipcRenderer.invoke("desktop:logs:open") as Promise<{ opened: boolean }>,
   getSettings: () => ipcRenderer.invoke("desktop:settings:get"),
   saveSettings: (input: DesktopSettingsInput) => ipcRenderer.invoke("desktop:settings:save", input),

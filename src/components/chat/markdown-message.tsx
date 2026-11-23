@@ -114,8 +114,8 @@ function CodeBlock({ children, writing, hljs }: { children: React.ReactNode; wri
         </button>
       </div>
       {highlighted !== null
-        ? <pre><code className={`hljs language-${language}`} dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>
-        : <pre>{children}</pre>}
+        ? <pre tabIndex={0}><code className={`hljs language-${language}`} dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>
+        : <pre tabIndex={0}>{children}</pre>}
     </div>
   );
 }

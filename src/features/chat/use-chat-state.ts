@@ -107,7 +107,12 @@ export function useChatState() {
 
   const transportFor = (chatId: string) => createChatTransport(chatId === DRAFT_CHAT ? null : chatId, { selectedChatModel: sentChatModel, modelMode });
   const makeSession = (chatId: string, fresh = false) => new ConversationSession(chatId, transportFor(chatId), fresh ? { history: "ready" } : {});
-  const { session, state, messages, setMessages, regenerate, addToolApprovalResponse, status, error, clearError, stop } = useActiveSession(activeChatId, chatId => transportFor(chatId));
+  const { session, state, messages, setMessages, regenerate, addToolApprovalResponse: respondToApproval, status, error, clearError, stop } = useActiveSession(activeChatId, chatId => transportFor(chatId));
+  // The session's transport was created when this conversation opened. A decision
+  // continues with the model selected when the user gives it.
+  const addToolApprovalResponse: typeof respondToApproval = ({ options, ...response }) => respondToApproval({
+    ...response, options: { ...options, body: { ...options?.body, model: sentChatModel ?? undefined, mode: "chat" } },
+  });
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const draft = state.draft;
@@ -386,7 +391,7 @@ export function useChatState() {
     session, draft, queue: state.queue, activeChatId,
     answeringThere: Boolean(activeChat?.answering), awaitingApprovalThere: Boolean(activeChat?.awaitingApproval), answeringHere: isAnsweringHere,
     isPending, isConversationReady, isHistoryReady: Boolean(confirmedChatId) && isHistoryReady, isDocumentScopeSaving, isUploadingAttachments,
-    modelMode, choice, selectedModel, selectedModelInfo, appendAttachments, onSubmit, onStop,
+    modelMode, choice, selectedModel, selectedModelInfo, appendAttachments, setPageError, onSubmit, onStop,
   });
   const actions = useMessageActions({
     session, activeChatId, messages, setMessages, regenerate, isPending, isDocumentScopeSaving, selectedModel, sentChatModel, modelMode,

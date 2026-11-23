@@ -96,3 +96,17 @@ test("rejecting an edit leaves the file untouched", async ({ page, app }) => {
   await expect.poll(async () => (await storedEdits(page, chat.id)).map(tool => tool.state)).not.toContain("output-available");
   expect(readFileSync(join(app.folder, "README.md"), "utf8")).toBe("# 旧标题\n\n正文保持不变。\n");
 });
+
+test("approval continues on the model selected while the edit was waiting", async ({ page, app }) => {
+  const { chat, card } = await propose(page, app);
+  await page.getByRole("combobox").filter({ hasText: "Claude Opus Offline" }).click();
+  await page.getByRole("option", { name: "Gemini Flash Offline", exact: true }).click();
+  const continuation = page.waitForResponse(response => new URL(response.url()).pathname === "/api/chat" && response.request().method() === "POST");
+  await card.getByRole("button", { name: "批准", exact: true }).click();
+  const resumed = await continuation;
+  expect(resumed.status()).toBe(200);
+  expect(resumed.request().postDataJSON().model).toEqual({ providerId: "openrouter", modelId: "google/gemini-3-flash-preview" });
+  await waitForChatStream(page);
+  await expect.poll(async () => (await storedEdits(page, chat.id)).map(tool => tool.state)).toEqual(["output-available"]);
+  expect(readFileSync(join(app.folder, "README.md"), "utf8")).toBe("# 新标题\n\n正文保持不变。\n");
+});

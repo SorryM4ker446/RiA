@@ -198,6 +198,7 @@ test("a picture in the media detail opens in the viewer fitted to the window, zo
 
   await preview.dblclick();
   await expect(viewer(page)).toBeVisible();
+  await expect(viewer(page)).toHaveCSS("-webkit-app-region", "no-drag");
   const picture = viewer(page).locator(".image-viewer-picture");
   // The scale shows once the picture has loaded and been fitted.
   await expect(viewer(page).locator(".image-viewer-scale")).toHaveText(/^\d+%$/);
@@ -211,6 +212,12 @@ test("a picture in the media detail opens in the viewer fitted to the window, zo
   await viewer(page).getByRole("button", { name: "放大", exact: true }).click();
   await expect.poll(() => scaleOf(page)).toBeGreaterThan(fittedScale);
   await viewer(page).getByRole("button", { name: "缩小", exact: true }).click();
+  await expect.poll(() => scaleOf(page)).toBe(fittedScale);
+  // Wheel input belongs to the viewer and zooms in both directions without a modifier.
+  await picture.hover();
+  await page.mouse.wheel(0, -240);
+  await expect.poll(() => scaleOf(page)).toBeGreaterThan(fittedScale);
+  await page.mouse.wheel(0, 240);
   await expect.poll(() => scaleOf(page)).toBe(fittedScale);
   await viewer(page).getByRole("button", { name: "原始尺寸", exact: true }).click();
   await expect.poll(() => scaleOf(page)).toBe(100);

@@ -937,6 +937,11 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .ui-dropdown-item[data-variant="destructive"] { color: hsl(var(--destructive)); }
 .ui-dropdown-item[data-variant="destructive"][data-highlighted] { background: hsl(var(--destructive) / .08); }
 .ui-dropdown-item[data-disabled] { pointer-events: none; opacity: .5; }
+.chat-context-menu.ui-dropdown-content { min-width: 11.5rem; background: hsl(var(--popover) / .96); -webkit-app-region: no-drag; }
+.chat-context-menu .ui-dropdown-item { min-height: 32px; padding: 5px 8px; }
+.chat-context-menu .ui-dropdown-item svg { color: hsl(var(--muted-foreground)); }
+.chat-context-menu kbd { margin-inline-start: auto; padding-inline-start: 1rem; color: hsl(var(--muted-foreground)); font-size: 11px; white-space: nowrap; }
+[data-chat-copy-body]:focus-visible, [data-chat-copy-body] pre:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; border-radius: var(--radius-inner); }
 
 .workspace-shell[data-chat-page="true"] .workspace-content { background: hsl(var(--background)); scrollbar-gutter: auto; }
 .conversation-row { border: 1px solid transparent; border-radius: 12px; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
@@ -2007,5 +2012,8 @@ html:not(.dark) :is(.workspace-nav-link[aria-current="page"], .sidebar-chat-row[
 /* A picture being made holds the room the picture will take (square, as tall as it will be at most), so it lands in place. */
 .chat-picture-pending { display: flex; width: 100%; aspect-ratio: 1; max-height: 420px; align-items: center; justify-content: center; gap: 8px; border-radius: var(--radius-card); background: hsl(var(--muted) / .6); color: hsl(var(--muted-foreground)); font-size: 13px; }
 .chat-picture-actions-space { height: 2rem; }
+.chat-picture-actions { display: flex; flex-wrap: wrap; align-self: flex-end; justify-content: flex-end; max-width: 100%; gap: 6px; }
+.chat-picture-actions > button { min-width: 7rem; }
+.chat-picture-actions > button:not(:only-child) { flex: 1 0 max-content; }
 .chat-picture-image { animation: overlay-in var(--dur-base) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .chat-picture-image { animation: none; } }

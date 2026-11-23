@@ -109,7 +109,6 @@ export const clientMessages = {
   "mediaGen.videoReferenceLimit": "视频生成最多使用 1 个参考图。",
   "mediaGen.untitledFile": "未命名文件",
   "mediaGen.reuseEdit": "继续编辑",
-  "mediaGen.reuseAsk": "带图追问",
   "mediaGen.reuseVideoRef": "用作视频参考",
   "mediaGen.attachImageFailed": "加入图片附件失败",
 

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChatHeader } from "@/features/chat/chat-toolbar";
 import { Composer } from "@/features/chat/composer";
+import { useChatContextMenu } from "@/features/chat/chat-context-menu";
 import { DeleteDialog } from "@/features/chat/delete-dialog";
 import { MessageRenderer } from "@/features/chat/message-renderer";
 import { RunRecords } from "@/features/chat/run-records";
@@ -26,6 +27,10 @@ import { looksLikeQuestion } from "@/features/chat/image-mode-question";
 export default function ChatPage() {
   useLocale();
   const chat = useChatState();
+  const contextMenu = useChatContextMenu(chat.activeChatId,
+    chat.modelMode === "chat" && chat.selectedModelInfo?.supportsImageInput && chat.isConversationReady
+      ? imageUrl => chat.onReuseImageForEditing({ imageUrl, key: imageUrl, filenameBase: "reference" })
+      : undefined);
   const openSettings = useOpenSettings();
   // Notes in the corner rise above the composer and the cards over it whenever they would cover them.
   const dock = useRef<HTMLDivElement>(null);
@@ -51,7 +56,7 @@ export default function ChatPage() {
     clearPreferencesError,
   } = chat;
   return (
-    <main className="chat-workspace relative flex h-full min-h-0 w-full overflow-hidden">
+    <main className="chat-workspace relative flex h-full min-h-0 w-full overflow-hidden" {...contextMenu.events}>
       <ToolLessModelNotice {...chat} />
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Card className="chat-canvas relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
@@ -120,6 +125,7 @@ export default function ChatPage() {
       </section>
 
       <DeleteDialog {...chat} />
+      {contextMenu.menu}
     </main>
   );
 }

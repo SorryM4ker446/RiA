@@ -17,8 +17,8 @@ export function viewedImage(src: string, alt: string): ViewedImage {
 }
 
 /**
- * A picture in a conversation, with a way to look at it closely: double-click
- * it, or use its own button (which is where focus comes back to). `url` absent:
+ * A picture in a conversation. Click it or use the named action to open the
+ * viewer. Focus returns to the named action when the viewer closes. `url` absent:
  * it is still being made, and its place already holds the room it will take,
  * so the picture arriving does not move what is around it.
  */
@@ -31,16 +31,19 @@ export function ChatPicture({ url, alt, testId, open, children }: {
   children?: React.ReactNode;
 }) {
   useLocale();
-  const actions = useRef<HTMLDivElement>(null);
-  // Focus comes back to the open button, the first of the picture's actions.
-  const show = () => { if (url) open(viewedImage(url, alt), () => actions.current?.querySelector("button") ?? null); };
+  const viewButton = useRef<HTMLButtonElement>(null);
+  const show = () => { if (url) open(viewedImage(url, alt), () => viewButton.current); };
   return (
-    <figure className="chat-picture mt-3 space-y-2" data-testid={url ? testId : "generating-picture"}>
+    <figure className="chat-picture mt-3 flex flex-col items-center gap-2" data-chat-copy-ignore={!url || undefined} data-testid={url ? testId : "generating-picture"}>
       {url ? (
         <>
-          <Image alt={alt} className="chat-picture-image max-h-[420px] w-full rounded-lg object-contain" src={url} unoptimized width={1024} height={1024} onDoubleClick={show} />
-          <div ref={actions} className="flex flex-wrap items-center gap-2">
-            <Button size="sm" type="button" variant="secondary" onClick={show}><Maximize2 data-icon="inline-start" aria-hidden="true" />{t("asset.openViewer")}</Button>
+          <button type="button" className="w-full cursor-zoom-in select-text" tabIndex={-1} data-chat-image-preview aria-label={`${t("asset.openViewer")} · ${alt}`} onClick={() => {
+            if (!window.getSelection()?.toString()) show();
+          }}>
+            <Image alt={alt} className="chat-picture-image max-h-[420px] w-full rounded-lg object-contain" src={url} unoptimized width={1024} height={1024} draggable={false} />
+          </button>
+          <div className="chat-picture-actions">
+            <Button asChild size="sm" variant="secondary"><button ref={viewButton} type="button" onClick={show}><Maximize2 data-icon="inline-start" aria-hidden="true" />{t("asset.openViewer")}</button></Button>
             {children}
           </div>
         </>

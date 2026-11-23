@@ -7,8 +7,8 @@
  *
  * `clipboard-sanitized-write` is the narrowest permission that covers the two
  * copy controls. It allows writing plain text and grants no access to what the
- * clipboard already holds, which is why reading is absent: nothing in this
- * application reads it.
+ * clipboard already holds. The chat menu invokes the focused editor's native
+ * paste command, which delivers the same paste event as the keyboard shortcut.
  */
 export const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set([
   "clipboard-sanitized-write",
