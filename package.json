@@ -1,7 +1,7 @@
 {
   "name": "ria",
   "productName": "RiA",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "packageManager": "npm@11.19.1",
   "description": "A local-first AI agent for Windows",
   "author": "RiA",
