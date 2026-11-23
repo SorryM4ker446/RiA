@@ -4,6 +4,8 @@ import { MEDIA_LIMITS } from "@/lib/media/limits-constants";
 import { ASSET_ID_PATTERN } from "@/lib/media/message-codec";
 import { imageAspectRatioSchema } from "@/lib/media/generation-recipe";
 import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
+import { ApiError } from "@/lib/server/api-error";
+import type { ConversationImageScope } from "@/lib/media/conversation-images";
 
 /*
  * Making a picture from the conversation. The chat model writes the whole
@@ -13,12 +15,13 @@ import { autoReviewSchema } from "@/lib/approvals/auto-review-schema";
  * image and shown in the answer; the call's result says where it is.
  */
 
-export const GENERATE_IMAGE_DESCRIPTION = "Make a picture with the user's image model; it is shown to the user in the conversation. Whether to use it is your judgement; the test is whether the user wants a picture made or changed, rather than words about one. Use it for: \"draw a cat in a spacesuit\" (a picture asked for); \"make me a poster for Friday's talk\" (the result is a picture); \"now make the background night\" after a picture (a change: pass that picture in referenceImages). Skip it for: \"how do I draw a cat?\" or \"what makes a good poster?\" (questions to answer in words); a diagram or chart you can write as Mermaid or a table; a picture the user did not ask for. Write prompt as the complete description the image model needs, since it sees nothing else: subject, style, composition, any text to appear in the picture, and everything from the conversation it depends on. To change or build on pictures, put their media ids in referenceImages: each image in the conversation, attached or made earlier, shows its media id. aspectRatio is optional, such as 16:9 or 1:1. Each call costs money: it waits for the user's approval unless their latest message asks for the picture or the conversation has full access. The result gives the new picture's media id. If the result includes the actual image, check it against what was asked and call once more with a corrected prompt if it plainly misses. If no image is attached, keep your reply to a brief confirmation. When the user asks to inspect the result, also say that you cannot verify it. Leave both the prompt and all visual details out of this reply. The user already sees the picture, so keep any description brief and omit the link.";
+export const GENERATE_IMAGE_DESCRIPTION = "Make a picture with the user's image model when the user wants a picture created or changed. For a new picture (e.g. draw a cat in a spacesuit), use operation create. For a change or another picture based on an existing image (e.g. now make the background night), use operation edit and pass the actual media ids in referenceImages. If the target is unclear, ask which picture to use. A visual question about an existing picture only needs readConversationHistory with imageIds. Write a complete description for the image model, which sees only the prompt and the chosen references. Each call can cost money and follows the conversation's approval rule. The result gives the new picture's media id. If pixels reach you, check the result when the user asks. When you received only the receipt, confirm generation and say you cannot verify visual details if asked. The user already sees the picture, so keep the reply brief and omit its link and prompt.";
 
 const generateImageFields = z.strictObject({
   prompt: z.string().trim().min(1).max(4000).describe("The complete description for the image model, with everything from the conversation it needs."),
-  referenceImages: z.array(z.string().regex(ASSET_ID_PATTERN, "a media id shown in the conversation")).max(MEDIA_LIMITS.attachmentCount).optional()
-    .describe(`Media ids of pictures to change or build on, at most ${MEDIA_LIMITS.attachmentCount}.`),
+  operation: z.enum(["create", "edit"]).optional().describe("Edit for any request to change or build on an existing image. Create for a new image from text."),
+  referenceImages: z.array(z.string().regex(ASSET_ID_PATTERN, "a media id shown in the conversation")).max(MEDIA_LIMITS.referenceCount).optional()
+    .describe(`Media ids of pictures to change or build on, at most ${MEDIA_LIMITS.referenceCount}.`),
   aspectRatio: imageAspectRatioSchema.optional().describe("Width to height, such as 16:9, 1:1 or 9:16. Leave it out for the model's default."),
 });
 /** What the model writes; the review's verdict is added by this server only. */
@@ -49,18 +52,23 @@ export function hasUnseenGeneratedImage(messages: ModelMessage[]) {
 }
 
 /** Runs one generation for the conversation, through the same service the image mode uses. */
-export async function runGenerateImage(input: GenerateImageInput, context: { chatId?: string | null; signal?: AbortSignal; background?: boolean }): Promise<GenerateImageOutput> {
+export async function runGenerateImage(input: GenerateImageInput, context: { chatId?: string | null; signal?: AbortSignal; background?: boolean; userText?: string; imageScope?: ConversationImageScope }): Promise<GenerateImageOutput | { skipped: "referenceRequired"; note: string }> {
   context.signal?.throwIfAborted();
   // Loaded here: the generation service reads the request schemas, which list the built-in tools.
   const { generateStoredMedia } = await import("@/lib/media/generation");
   const { mediaUrl } = await import("@/lib/media/message-codec");
+  const { checkImageEdit } = await import("./image-edit-binding");
   const referenceImages = [...new Set(input.referenceImages ?? [])];
+  const issue = await checkImageEdit(input, context.chatId, context.userText, context.imageScope);
+  if (issue && referenceImages.length) throw new ApiError({ code: "VALIDATION_ERROR", message: issue });
+  if (issue) return { skipped: "referenceRequired", note: issue };
   const result = await generateStoredMedia("image", {
     prompt: input.prompt,
     ...(context.chatId ? { chatId: context.chatId } : {}),
     inputImages: referenceImages.map(id => ({ url: mediaUrl(id) })),
     ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),
   }, context.signal ?? new AbortController().signal, { background: context.background });
+  context.imageScope?.generated.add(result.asset.assetId);
   return {
     mediaId: result.asset.assetId, mediaType: result.asset.mediaType, model: result.modelId, prompt: input.prompt, referenceImages,
     ...(input.aspectRatio ? { aspectRatio: input.aspectRatio } : {}),

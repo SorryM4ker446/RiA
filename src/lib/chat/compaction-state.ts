@@ -1,6 +1,9 @@
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 
+const restoredContextSchema = z.object({ version: z.literal(1), workspaceId: z.string().nullable(), text: z.string() });
+export type RestoredContextSnapshot = z.infer<typeof restoredContextSchema>;
+
 /**
  * What goes with a conversation's summary besides its text: the tool calls it stands in
  * for in messages the summary does not otherwise cover, what the model was working with,
@@ -13,10 +16,10 @@ const summaryStateSchema = z.object({
   log: z.array(z.string()).default([]),
   /**
    * The files and skills put back under this summary, as they were when it was written.
-   * Absent until the first request after it; sent unchanged from then on, so a provider's
-   * prompt cache keeps matching it. A later change to a file is reported separately.
+   * Reused while the file grant still matches. Snapshots from earlier restore
+   * rules are rebuilt from the recorded files and skills.
    */
-  restored: z.string().optional(),
+  restored: restoredContextSchema.optional().catch(undefined),
   /** The task checklist as the model last stated it, so a long task keeps its plan after a fold. */
   plan: z.array(z.object({ content: z.string(), status: z.string() })).optional(),
 });

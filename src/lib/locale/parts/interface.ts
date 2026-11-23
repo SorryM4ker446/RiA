@@ -263,6 +263,7 @@ export const interfaceMessages = {
   "ui.chat.approval-dock.autoReviewAsked": "自动审核：{reason}",
   "ui.chat.approval-dock.autoReviewFailed": "自动审核没有给出结果，需要你确认。",
   "ui.chat.approval-dock.pictureReferences": "参考 {count} 张图片",
+  "ui.chat.approval-dock.pictureReference": "参考图 {index}",
   "ui.chat.approval-dock.pictureCost": "生成会产生费用",
   "ui.chat.approval-dock.pictureAwaitingApproval": "待批准的画面描述",
   "ui.chat.edited-files.undo": "撤销修改",

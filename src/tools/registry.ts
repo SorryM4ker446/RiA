@@ -60,7 +60,7 @@ function extensionDescriptor(row: Extension, definition: ExtensionTool): AnyTool
       return result.success ? { success: true, value: await bindForApproval(result.data) } : { success: false, error: result.error };
     } }),
     ...approvalGate("external"),
-    bindForApproval,
+    bindForApproval: async input => { await bindForApproval(input); },
     reviewAction: input => ({ kind: "extension", extension: row.name, tool: definition.name, arguments: input.arguments }),
     execute: async ({ input, signal }) => {
       const operation = startExtensionOperation(row.id, signal);

@@ -27,7 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { getFileParts, getMessageRoleLabel, isToolPart, readText } from "@/features/chat/page-utils";
 import { cn } from "@/lib/utils/cn";
-import { AlertCircle, Check, Copy, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
+import { AlertCircle, Check, Copy, ImagePlus, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { ChatState } from "@/features/chat/use-chat-state";
@@ -148,7 +148,7 @@ type MessageRowProps = {
   imageUrl: string | undefined;
   videoUrl: string | undefined;
   attachingImageKey: ChatState["attachingImageKey"];
-  reuseImageActionLabel: string;
+  reuseImageActionLabel: string | null;
   tools: ChatState["tools"];
   alwaysReasons: boolean;
   /** What the turn says while it waits or retries; only for the last row. */
@@ -203,13 +203,16 @@ export const MessageRow = memo(function MessageRow({
   const savedAt = isLive || isEditing ? null : readMessageTime(message.metadata);
   // An answer that made pictures shows them where they were made, between the text written before and after.
   const pieces = isUser ? null : answerPieces(message);
+  const savedPictures = !isUser && !pieces ? generatedPictures(toolParts) : [];
+  const hasCopyBody = !isEditing && Boolean(text || imageUrl || pieces || savedPictures.length || fileParts.some(file => file.mediaType.startsWith("image/")));
   const [viewing, setViewing] = useState<{ image: ViewedImage; returnTo: () => HTMLElement | null } | null>(null);
   const openPicture = (image: ViewedImage, returnTo: () => HTMLElement | null) => setViewing({ image, returnTo });
-  const reuseButton = (imageUrl: string, key: string, filenameBase: string) => (
+  const reuseButton = (imageUrl: string, key: string, filenameBase: string) => reuseImageActionLabel ? (
     <Button disabled={Boolean(attachingImageKey)} onClick={() => void actions.current?.onReuseImageForEditing({ imageUrl, key, filenameBase })} size="sm" type="button" variant="secondary">
+      {attachingImageKey === key ? <Spinner aria-hidden="true" /> : <ImagePlus data-icon="inline-start" aria-hidden="true" />}
       {attachingImageKey === key ? t("chat.messages.reusing") : reuseImageActionLabel}
     </Button>
-  );
+  ) : null;
 
   // RiA's own notice that background sub-agents ended: a line between the turns, not the user's message.
   const ownNotice = isUser ? readMessageNotice(message.metadata) : null;
@@ -334,6 +337,8 @@ export const MessageRow = memo(function MessageRow({
         {/* Leaves with a fold, not a jump, once the final answer starts. */}
         <Reveal>{plan ? <TaskPlan messageId={message.id} items={plan} /> : null}</Reveal>
         {!isUser ? <QuestionRecords parts={toolParts} /> : null}
+        <div className={hasCopyBody ? undefined : "contents"} data-chat-copy-body={hasCopyBody || undefined} tabIndex={hasCopyBody ? 0 : undefined}
+          role={hasCopyBody ? "group" : undefined} aria-label={hasCopyBody ? t("chat.contextMenu.messageBody") : undefined}>
         {!isEditing && pieces ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}>{pieces.map((piece, index) => {
           if (piece.kind === "text") {
             const after = pieces.slice(0, index).reverse().find(item => item.kind === "picture");
@@ -347,6 +352,7 @@ export const MessageRow = memo(function MessageRow({
           </ChatPicture>;
         })}</CollapsibleAnswer>
           : !isEditing && text ? <CollapsibleAnswer key={message.id} collapsible={!isUser && !isLast}><MarkdownMessage text={text} streaming={isLastAssistantStreaming} /></CollapsibleAnswer> : null}
+        <div className="contents" data-chat-copy-ignore>
         {skippedTool ? <p className="mt-2 text-xs text-muted-foreground">{tf("chat.slash.toolNotCalled", { name: skippedTool })}</p> : null}
         {memoryNote && !isUser && !pendingHere ? <p className="answer-memory-note mt-2 text-xs text-muted-foreground" data-outcome={memoryNote.outcome}>
           {memoryNote.outcome === "updated" ? tf("chat.memoryNote.updated", { added: memoryNote.added, updated: memoryNote.updated, removed: memoryNote.removed })
@@ -356,11 +362,12 @@ export const MessageRow = memo(function MessageRow({
         </p> : null}
         {!isUser && !isLastAssistantStreaming && canShowSources ? <AnswerSources message={message} onShowAll={() => actions.current?.onShowSources?.(message.id)} /> : null}
         {toolParts.map(part => part.type === "tool-convertDocument" && part.state === "output-available" ? <DocumentDownload key={`download-${part.toolCallId}`} output={part.output} /> : null)}
-        {!isUser && !pieces ? generatedPictures(toolParts).map(picture => (
+        </div>
+        {savedPictures.map(picture => (
           <ChatPicture key={`picture-${picture.callId}`} url={picture.url} alt={t("chat.messages.generatedImage")} testId="generated-picture" open={openPicture}>
             {reuseButton(picture.url, `${message.id}-${picture.callId}`, `generated-${picture.mediaId}`)}
           </ChatPicture>
-        )) : null}
+        ))}
         {imageUrl ? (
           <ChatPicture url={imageUrl} alt={t("chat.messages.generatedImage")} testId="generated-image" open={openPicture}>
             {reuseButton(imageUrl, `${message.id}-generated`, `generated-${message.id}`)}
@@ -368,6 +375,7 @@ export const MessageRow = memo(function MessageRow({
         ) : null}
         {videoUrl ? (
           <video
+            data-chat-copy-ignore
             className="mt-3 aspect-video max-h-[420px] w-full rounded-lg bg-black object-contain"
             controls
             preload="metadata"
@@ -376,7 +384,7 @@ export const MessageRow = memo(function MessageRow({
         ) : null}
         {fileParts.map((filePart, fileIndex) => {
           if (isDocumentAttachment(filePart.mediaType)) {
-            return <div className="mt-3 w-64 max-w-full" key={`${message.id}-document-${fileIndex}`}><DocumentAttachment {...filePart} /></div>;
+            return <div data-chat-copy-ignore className="mt-3 w-64 max-w-full" key={`${message.id}-document-${fileIndex}`}><DocumentAttachment {...filePart} /></div>;
           }
           if (filePart.mediaType.startsWith("image/")) {
             return (
@@ -389,6 +397,7 @@ export const MessageRow = memo(function MessageRow({
           if (filePart.mediaType.startsWith("video/")) {
             return (
               <video
+                data-chat-copy-ignore
                 className="mt-3 aspect-video max-h-[420px] w-full rounded-lg bg-black object-contain"
                 controls
                 key={`${message.id}-file-video-${fileIndex}`}
@@ -400,6 +409,7 @@ export const MessageRow = memo(function MessageRow({
 
           return (
             <a
+              data-chat-copy-ignore
               className="mt-3 block rounded-lg px-3 py-2 text-xs underline-offset-2 transition-colors duration-[--dur-fast] hover:bg-accent hover:underline"
               href={filePart.url}
               key={`${message.id}-file-link-${fileIndex}`}
@@ -410,6 +420,7 @@ export const MessageRow = memo(function MessageRow({
             </a>
           );
         })}
+        </div>
         {!isUser && !pendingHere && !toolParts.some(part => part.state === "approval-requested") ? <EditedFiles parts={toolParts} chatId={chatId} runIds={readRunIds(message.metadata)} /> : null}
       </article>
     </div>{compactionSummary !== null ? <CompactionMarker summary={compactionSummary} /> : null}

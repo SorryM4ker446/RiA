@@ -27,7 +27,7 @@ export const terminalTool: ToolDescriptor<TerminalInput, TerminalCommandResult> 
     // approval contain the same directory, permission revision and session ID.
     return parsed.success ? { success: true, value: await bindTerminalApproval(parsed.data) } : { success: false, error: parsed.error };
   } }),
-  bindForApproval: bindTerminalApproval,
+  bindForApproval: async input => { await bindTerminalApproval(input); },
   // Long output reaches the model as its beginning and end, with the log to read the rest.
   modelOutput: async output => terminalModelOutput({ output }),
   reviewAction: input => ({ kind: "command", command: input.command, cwd: input.binding?.cwd ?? "", ...(input.runInBackground ? { runInBackground: true } : {}) }),

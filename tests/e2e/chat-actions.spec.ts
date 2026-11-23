@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
 import { openExecutionDetails } from "../helpers/execution-records";
+import { testPng } from "../helpers/model-provider";
 import { createHash } from "node:crypto";
 
 type HistoryMessage = { id: string; clientMessageId: string; role: "user" | "assistant"; content: string; createdAt: string };
@@ -28,6 +29,148 @@ async function mockHistory(page: Page, history: HistoryMessage[]) {
 function streamBody(chunks: object[]) {
   return chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
 }
+
+test("the chat context menu preserves the draft selection and scopes select all to the message or code", async ({ page }) => {
+  await mockHistory(page, [userMessage, { ...assistantMessage, content: "Before the code.\n\n```text\nkeep this line\n```\n\nAfter the code." }]);
+  await page.goto("/chat");
+  await expect(page.getByText("After the code.", { exact: true })).toBeVisible();
+  const draft = page.locator("textarea[data-chat-draft]");
+  const menu = page.getByRole("menu", { name: "右键菜单" });
+  const command = (name: string) => menu.getByRole("menuitem", { name, exact: true });
+
+  await draft.click({ button: "right" });
+  await expect(command("剪切")).toBeDisabled();
+  await expect(command("撤销")).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(draft).toBeFocused();
+  await page.keyboard.insertText("Hello 世界");
+  await draft.evaluate(node => (node as HTMLTextAreaElement).setSelectionRange(6, 8, "backward"));
+  await draft.click({ button: "right", position: { x: 3, y: 3 } });
+  await expect(command("剪切")).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await expect(draft).toBeFocused();
+  await expect.poll(() => draft.evaluate(node => {
+    const input = node as HTMLTextAreaElement;
+    return [input.selectionStart, input.selectionEnd, input.selectionDirection];
+  })).toEqual([6, 8, "backward"]);
+  await draft.press("Shift+F10");
+  await command("删除").click();
+  await expect(draft).toHaveValue("Hello ");
+  await draft.press("Shift+F10");
+  await command("撤销").click();
+  await expect(draft).toHaveValue("Hello 世界");
+  await draft.press("Shift+F10");
+  await command("重做").click();
+  await expect(draft).toHaveValue("Hello ");
+
+  const answer = page.locator('[data-message-role="assistant"] [data-chat-copy-body]');
+  const code = answer.locator("pre");
+  await code.press("Shift+F10");
+  await expect(command("复制")).toBeDisabled();
+  await command("全选").click();
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString().trim())).toBe("keep this line");
+  await answer.press("Shift+F10");
+  await command("全选").click();
+  const inAnswer = await answer.evaluate(node => node.contains(window.getSelection()?.getRangeAt(0).commonAncestorContainer ?? null));
+  expect(inAnswer).toBe(true);
+  await expect(draft).toHaveValue("Hello ");
+
+  await page.setViewportSize({ width: 900, height: 640 });
+  await draft.click({ button: "right", position: { x: 12, y: 50 } });
+  await expect(menu).toBeVisible();
+  await expect.poll(async () => {
+    const [popup, editor] = await Promise.all([menu.boundingBox(), draft.boundingBox()]);
+    return Boolean(popup && editor && popup.x >= 0 && popup.y >= 0 && popup.x + popup.width <= 900 &&
+      popup.y + popup.height <= 640 && popup.y < editor.y);
+  }).toBe(true);
+});
+
+test("the chat image menu restores a backward selection on Escape and closes when the transcript scrolls", async ({ page }) => {
+  const url = "/api/media/11111111-1111-4111-8111-111111111111";
+  const text = "Keep this text selected";
+  await mockHistory(page, [
+    { ...userMessage, content: "__USER_MESSAGE__:" + JSON.stringify({ type: "user-message", text, files: [{ url, mediaType: "image/png" }] }) },
+    { ...assistantMessage, content: Array.from({ length: 16 }, (_, i) => `Paragraph ${i + 1} in a reply long enough to scroll.`).join("\n\n") },
+  ]);
+  await page.route(`**${url}`, route => route.fulfill({ contentType: "image/png", body: testPng }));
+  await page.goto("/chat");
+  const menu = page.getByRole("menu", { name: "右键菜单" });
+  const image = page.getByTestId("message-image").locator("img");
+  const transcript = page.getByTestId("message-list");
+  await image.scrollIntoViewIfNeeded();
+  await page.getByText(text, { exact: true }).evaluate(node => {
+    const content = node.firstChild!;
+    window.getSelection()!.setBaseAndExtent(content, content.textContent!.length, content, 0);
+  });
+  await image.click({ button: "right" });
+  await expect(menu.getByRole("menuitem", { name: "复制图片" })).toBeVisible();
+  const initialScroll = await transcript.evaluate(node => node.scrollTop);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(transcript.locator('[data-message-role="user"] [data-chat-copy-body]')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => {
+    const selection = window.getSelection()!;
+    return [selection.toString(), selection.anchorOffset, selection.focusOffset];
+  })).toEqual([text, text.length, 0]);
+  expect(await transcript.evaluate(node => node.scrollTop)).toBe(initialScroll);
+
+  await image.click({ button: "right" });
+  await expect(menu).toBeVisible();
+  const scrolledTo = await transcript.evaluate(node => {
+    node.scrollTop += node.scrollHeight - node.clientHeight - node.scrollTop >= 50 ? 50 : -50;
+    return node.scrollTop;
+  });
+  expect(scrolledTo).not.toBe(initialScroll);
+  await expect(menu).toBeHidden();
+  expect(await transcript.evaluate(node => node.scrollTop)).toBe(scrolledTo);
+});
+
+test("the chat context menu preserves table columns and reports excess pasted images", async ({ page }) => {
+  await page.addInitScript(() => {
+    navigator.clipboard.writeText = async text => { document.documentElement.dataset.copiedText = text; };
+  });
+  await mockHistory(page, [userMessage, { ...assistantMessage, content: "| Task | Time |\n| --- | --- |\n| Fetch | 15 s |\n| Build | 60 s |" }]);
+  await page.goto("/chat");
+  const menu = page.getByRole("menu", { name: "右键菜单" });
+  const body = page.locator("[data-chat-copy-body]").filter({ has: page.getByRole("table") });
+  await body.press("Shift+F10");
+  await menu.getByRole("menuitem", { name: "全选" }).click();
+  await body.press("Shift+F10");
+  await menu.getByRole("menuitem", { name: "复制", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-copied-text", "Task\tTime\nFetch\t15 s\nBuild\t60 s");
+
+  const draft = page.locator("textarea[data-chat-draft]");
+  await draft.fill("已有的草稿");
+  const insertPlainText = await draft.evaluate((node, png) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "七张参考图");
+    data.setData("text/html", `<p>七张参考图</p>${`<img src="data:image/png;base64,${png}">`.repeat(7)}`);
+    return node.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+  }, testPng.toString("base64"));
+  expect(insertPlainText).toBe(true);
+  await expect(page.getByRole("alert").filter({ hasText: "未添加粘贴的图片" })).toContainText("每条消息最多添加 6 个附件。");
+  await expect(draft).toHaveValue("已有的草稿");
+  await expect(page.locator('.composer-attachments-reveal[data-state="open"] .composer-attachment-remove')).toHaveCount(0);
+});
+
+test("pasting a clipboard picture keeps the accompanying draft text", async ({ page }) => {
+  await page.addInitScript(png => {
+    navigator.clipboard.read = async () => [new ClipboardItem({
+      "text/plain": new Blob(["参考这个构图"], { type: "text/plain" }),
+      "image/png": new Blob([Uint8Array.from(atob(png), char => char.charCodeAt(0))], { type: "image/png" }),
+    })];
+  }, testPng.toString("base64"));
+  await mockHistory(page, [userMessage, assistantMessage]);
+  await page.goto("/chat");
+  const draft = page.locator("textarea[data-chat-draft]");
+  await draft.fill("已有草稿：");
+  const upload = page.waitForResponse(response => response.url().endsWith("/api/media/upload") && response.request().method() === "POST");
+  await draft.press("Shift+F10");
+  await page.getByRole("menuitem", { name: "粘贴", exact: true }).click();
+  expect((await upload).ok()).toBe(true);
+  await expect(draft).toHaveValue("已有草稿：参考这个构图");
+  await expect(page.locator('.composer-attachments-reveal[data-state="open"] .composer-attachment-remove')).toHaveCount(1);
+});
 
 for (const width of [1440, 390]) {
   test(`file permissions stay in place when execution activity appears at ${width}px`, async ({ page }) => {

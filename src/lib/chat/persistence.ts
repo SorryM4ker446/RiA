@@ -142,7 +142,7 @@ export async function claimChatApproval(chatId: string, message: UIMessage) {
     throw error;
   }
 }
-export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; unavailableTools?: string[]; runId?: string | null; contextReport?: unknown; scheduled?: boolean; heldReports?: string[] }) {
+export async function persistChatResponse(params: { skippedTool?: string; thinking?: Pick<ThinkingRecord, "kind" | "durationMs"> | null; input: ChatRequest; conversation: ChatPersistence; responseMessage: UIMessage; isAborted: boolean; generationFailed: boolean; unavailableTools?: string[]; runId?: string | null; contextReport?: unknown; scheduled?: boolean; heldReports?: string[]; answeredBy?: ChatRequest["modelRef"] }) {
   const { input, conversation, responseMessage, isAborted, generationFailed } = params;
   const { latestUserMessage, modelRef } = input;
   const { unavailableTools = [] } = params;
@@ -163,11 +163,12 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
     // tool: the next turn's request may need it, and it cannot be recovered
     // after the fact.
     const reasoning = getReasoningFromUIMessage(responseMessage);
+    const steps = stepsOfMessage(responseMessage.parts);
     // Supplied directly because a stream that ends in an error emits no finish
     // metadata, and those are the turns whose context accounting matters most.
     const contextReport = contextReportSchema.safeParse(params.contextReport ?? (responseMessage.metadata as { contextBudget?: unknown } | undefined)?.contextBudget);
     const content =
-      params.runId || toolItems.length > 0 || reasoning || params.thinking || (contextReport.success && assistantText)
+      params.runId || toolItems.length > 0 || reasoning || steps || params.thinking || ((contextReport.success || params.answeredBy) && assistantText)
         ? encodePersistedAssistantToolMessage({
           type: "assistant-tool-message",
           text: assistantText,
@@ -175,13 +176,14 @@ export async function persistChatResponse(params: { skippedTool?: string; thinki
           ...(reasoning ? { reasoning } : {}),
           ...(params.thinking ? { thinking: { ...params.thinking, ...(reasoning ? { marks: thinkingMarks(responseMessage.parts) } : {}) } } : {}),
           ...(contextReport.success ? { contextBudget: contextReport.data } : {}),
-          ...(stepsOfMessage(responseMessage.parts) ? { steps: stepsOfMessage(responseMessage.parts) } : {}),
+          ...(steps ? { steps } : {}),
           // Recorded so the note about a tool this turn could not use survives a
           // reload and is stated once, instead of only existing in the model's
           // prose or only in the live stream.
           ...(params.runId ? { runId: params.runId } : {}),
           ...(params.runId ? { runIds: [...new Set([...(conversation.previousRunIds ?? []), params.runId])] } : {}),
           modelLabel: `${input.modelRef.providerId}/${input.modelRef.modelId}`,
+          ...(!isAborted && !generationFailed && params.answeredBy ? { answeredBy: params.answeredBy } : {}),
           ...(unavailableTools.length ? { unavailableTools } : {}),
           ...(params.skippedTool ? { skippedTool: params.skippedTool } : {}),
           tools: toolItems,

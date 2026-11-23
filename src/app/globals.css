@@ -661,7 +661,7 @@ button:not(:disabled), summary, [role="tab"] { cursor: pointer; }
 html[data-rail-animating] .workspace-rail-docked { transition: width var(--dur-base) var(--ease-out); }
 html[data-rail-animating] .workspace-rail-inner { transition: opacity var(--dur-base) var(--ease-out), translate var(--dur-base) var(--ease-out); }
 html[data-rail-animating] .workspace-main > .workspace-topbar { transition: padding-left var(--dur-base) var(--ease-out); }
-html[data-rail-animating] .chat-title { transition: margin-left var(--dur-base) var(--ease-out); }
+html[data-rail-animating] .chat-header { transition: margin-left var(--dur-base) var(--ease-out); }
 /* Shown at once, so it can take focus at once; hidden only after it has faded. */
 html[data-rail-animating] .rail-toggle { transition: opacity var(--dur-base) var(--ease-out), visibility 0s; }
 html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !important; user-select: none; }
@@ -691,7 +691,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
   html[data-rail-collapsed="true"]:not([data-rail-dragging]) .rail-resizer { display: none; }
   html[data-rail-collapsed="true"] .workspace-main > .workspace-topbar { padding-left: 52px; }
   /* Folded, the title's hover pill keeps a little clear of the sidebar button instead of touching it. */
-  html[data-rail-collapsed="true"] .chat-title { margin-left: -4px; }
+  html[data-rail-collapsed="true"] .chat-header { margin-left: -4px; }
   html:not([data-rail-collapsed="true"]) .rail-toggle { opacity: 0; visibility: hidden; pointer-events: none; }
   html[data-rail-animating]:not([data-rail-collapsed="true"]) .rail-toggle { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) allow-discrete; }
 }
@@ -700,7 +700,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
   html:not([data-rail-pinned="true"]) .workspace-rail-docked > .workspace-rail-inner { opacity: 0; translate: -16px 0; }
   html:not([data-rail-pinned="true"]):not([data-rail-dragging]) .rail-resizer { display: none; }
   html:not([data-rail-pinned="true"]) .workspace-main > .workspace-topbar { padding-left: 52px; }
-  html:not([data-rail-pinned="true"]) .chat-title { margin-left: -4px; }
+  html:not([data-rail-pinned="true"]) .chat-header { margin-left: -4px; }
   html[data-rail-pinned="true"] .rail-toggle { opacity: 0; visibility: hidden; pointer-events: none; }
   html[data-rail-animating][data-rail-pinned="true"] .rail-toggle { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) allow-discrete; }
 }
@@ -716,7 +716,7 @@ html[data-rail-dragging], html[data-rail-dragging] * { cursor: col-resize !impor
 .rail-peek[data-state="pinning"] { box-shadow: 0 0 0 1px transparent, 16px 0 40px -18px transparent; }
 @keyframes rail-peek-in { from { translate: -100% 0; } }
 @keyframes rail-peek-out { to { translate: -100% 0; } }
-@media (prefers-reduced-motion: reduce) { html[data-rail-animating] :is(.workspace-rail-docked, .workspace-rail-inner, .workspace-main > .workspace-topbar, .rail-toggle, .chat-title) { transition: none; } .rail-peek, .rail-peek[data-state] { transition: none; animation-duration: 0s; } }
+@media (prefers-reduced-motion: reduce) { html[data-rail-animating] :is(.workspace-rail-docked, .workspace-rail-inner, .workspace-main > .workspace-topbar, .rail-toggle, .chat-header) { transition: none; } .rail-peek, .rail-peek[data-state] { transition: none; animation-duration: 0s; } }
 .workspace-content { background: hsl(var(--surface)); scrollbar-gutter: stable; scroll-behavior: smooth; }
 .workspace-content > main:not(.chat-workspace) { width: 100%; padding: clamp(1.5rem, 3vw, 3rem); }
 /* Workspace pages share one measure: wide enough for a list with a few columns, narrow enough that
@@ -937,6 +937,11 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
 .ui-dropdown-item[data-variant="destructive"] { color: hsl(var(--destructive)); }
 .ui-dropdown-item[data-variant="destructive"][data-highlighted] { background: hsl(var(--destructive) / .08); }
 .ui-dropdown-item[data-disabled] { pointer-events: none; opacity: .5; }
+.chat-context-menu.ui-dropdown-content { min-width: 11.5rem; background: hsl(var(--popover) / .96); -webkit-app-region: no-drag; }
+.chat-context-menu .ui-dropdown-item { min-height: 32px; padding: 5px 8px; }
+.chat-context-menu .ui-dropdown-item svg { color: hsl(var(--muted-foreground)); }
+.chat-context-menu kbd { margin-inline-start: auto; padding-inline-start: 1rem; color: hsl(var(--muted-foreground)); font-size: 11px; white-space: nowrap; }
+[data-chat-copy-body]:focus-visible, [data-chat-copy-body] pre:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; border-radius: var(--radius-inner); }
 
 .workspace-shell[data-chat-page="true"] .workspace-content { background: hsl(var(--background)); scrollbar-gutter: auto; }
 .conversation-row { border: 1px solid transparent; border-radius: 12px; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
@@ -958,9 +963,10 @@ body:has(.alert-dialog-content) :is(.dialog-overlay, .dialog-content)[data-state
    differs from the default. Fills are tints of the text colour, so they read on the translucent chat page. */
 /* Only as wide as what it holds: it opts out of the window's drag region, and stretched across the row it
    left the conversation's top bar impossible to drag the window by. */
-.chat-header { display: flex; width: fit-content; max-width: 100%; min-width: 0; align-items: center; gap: 8px; }
+/* Align the whole header so the offset does not shrink the title's intrinsic width. */
+.chat-header { display: flex; width: fit-content; max-width: 100%; min-width: 0; align-items: center; gap: 8px; margin-left: -8px; }
 /* The title keeps room to be read (about seven characters) however narrow the row: what sits beside it gives way first. */
-.chat-title { display: inline-flex; flex: 0 1 auto; min-width: min(7.5em, 100%); max-width: min(28rem, 100%); align-items: center; gap: 4px; margin-left: -8px; padding: 4px 6px 4px 8px; border-radius: var(--radius-control); font-size: 13px; font-weight: 600; letter-spacing: -0.006em; color: hsl(var(--foreground)); outline: none; }
+.chat-title { display: inline-flex; flex: 0 1 auto; min-width: min(7.5em, 100%); max-width: min(28rem, 100%); align-items: center; gap: 4px; padding: 4px 6px 4px 8px; border-radius: var(--radius-control); font-size: 13px; font-weight: 600; letter-spacing: -0.006em; color: hsl(var(--foreground)); outline: none; }
 .chat-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-title svg { width: 14px; height: 14px; flex-shrink: 0; color: hsl(var(--muted-foreground)); transition: rotate var(--dur-base) var(--ease-out); }
 .chat-title:hover, .chat-title[data-state="open"] { background: hsl(var(--foreground) / .06); }
@@ -2006,5 +2012,8 @@ html:not(.dark) :is(.workspace-nav-link[aria-current="page"], .sidebar-chat-row[
 /* A picture being made holds the room the picture will take (square, as tall as it will be at most), so it lands in place. */
 .chat-picture-pending { display: flex; width: 100%; aspect-ratio: 1; max-height: 420px; align-items: center; justify-content: center; gap: 8px; border-radius: var(--radius-card); background: hsl(var(--muted) / .6); color: hsl(var(--muted-foreground)); font-size: 13px; }
 .chat-picture-actions-space { height: 2rem; }
+.chat-picture-actions { display: flex; flex-wrap: wrap; align-self: flex-end; justify-content: flex-end; max-width: 100%; gap: 6px; }
+.chat-picture-actions > button { min-width: 7rem; }
+.chat-picture-actions > button:not(:only-child) { flex: 1 0 max-content; }
 .chat-picture-image { animation: overlay-in var(--dur-base) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .chat-picture-image { animation: none; } }

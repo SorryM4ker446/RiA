@@ -35,6 +35,6 @@ export const editProjectFileTool: ToolDescriptor<EditProjectFileInput, ProjectEd
     // immediately, and the approval shows the diff that will be written.
     return parsed.success ? { success: true, value: await bindProjectEdit(parsed.data) } : { success: false, error: parsed.error };
   } }),
-  bindForApproval: bindProjectEdit,
+  bindForApproval: async input => { await bindProjectEdit(input); },
   execute: async ({ input, signal, chatId, runId }) => applyProjectEdit(input, signal, { chatId, runId }),
 };

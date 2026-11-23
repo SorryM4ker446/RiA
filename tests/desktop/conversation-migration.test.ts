@@ -10,6 +10,52 @@ import { accountScopedMigrationsFrom, applyMigrations } from "../helpers/legacy-
 
 const { runDesktopMigrations } = createRequire(import.meta.url)("../../electron-dist/migrations.js");
 const migrationsDirectory = resolve("src/db/migrations");
+
+test("upgrading restores naming eligibility for legacy unused chats with stock titles", () => {
+  const root = mkdtempSync(join(tmpdir(), "ria-chat-title-upgrade-"));
+  const databaseFile = join(root, "app.db");
+  const options = { databaseFile, migrationsDirectory, backupsDirectory: join(root, "backups"), logger: { info() {}, warn() {}, error() {} } };
+  const sourceMigration = "20261126100000_chat_title_source";
+  const cutoff = Date.parse("2026-10-21T12:00:00Z");
+  try {
+    runDesktopMigrations({ ...options, upToMigration: "20261125100100_media_content_hash" });
+    const database = new DatabaseSync(databaseFile);
+    try {
+      const chat = database.prepare('INSERT INTO chats (id,title,createdAt,updatedAt) VALUES (?,?,?,?)');
+      chat.run("empty", "新会话", "2026-10-21 11:59:00", cutoff - 60_000);
+      chat.run("used-after", "New Chat", cutoff - 60_000, cutoff - 60_000);
+      chat.run("used-before", "New Chat", cutoff - 60_000, cutoff - 60_000);
+      chat.run("custom", "My title", cutoff - 60_000, cutoff - 60_000);
+      chat.run("manual", "New Chat", cutoff - 60_000, cutoff - 60_000);
+      chat.run("task", "Untitled", cutoff - 60_000, cutoff - 60_000);
+      const message = database.prepare("INSERT INTO messages (id,chatId,role,content,createdAt) VALUES (?,?,'user','Hello',?)");
+      message.run("before", "used-before", cutoff - 30_000);
+      database.exec("INSERT INTO scheduled_jobs (id,kind,timeZone,chatId,updatedAt) VALUES ('job','prompt','UTC','task',CURRENT_TIMESTAMP)");
+    } finally { database.close(); }
+
+    runDesktopMigrations({ ...options, upToMigration: "20261127100000_chat_model_preferences" });
+    const previous = new DatabaseSync(databaseFile);
+    try {
+      previous.prepare("UPDATE desktop_migrations SET appliedAt = '2026-10-21 12:00:00' WHERE name = ?").run(sourceMigration);
+      previous.exec("UPDATE chats SET titleSource = 'manual' WHERE id = 'manual'");
+      previous.prepare('INSERT INTO chats (id,title,createdAt,updatedAt) VALUES (?,?,?,?)').run("newer", "New Chat", cutoff + 60_000, cutoff + 60_000);
+      const message = previous.prepare("INSERT INTO messages (id,chatId,role,content,createdAt) VALUES (?,'used-after','user','Hello',?)");
+      for (let turn = 1; turn <= 3; turn++) message.run(`after-${turn}`, cutoff + turn * 6000);
+    } finally { previous.close(); }
+
+    assert.deepEqual(runDesktopMigrations(options).applied, ["20261128100000_chat_title_attempts"]);
+    assert.deepEqual(runDesktopMigrations(options).applied, []);
+    const upgraded = new DatabaseSync(databaseFile, { readOnly: true });
+    try {
+      const titles = upgraded.prepare('SELECT id,titleSource,titleAttempts FROM chats ORDER BY id').all();
+      assert.deepEqual(titles.map(row => [row.id, row.titleSource, row.titleAttempts]), [
+        ["custom", "named", 0], ["empty", "auto", 0], ["manual", "manual", 0], ["newer", "named", 0],
+        ["task", "named", 0], ["used-after", "auto", 0], ["used-before", "named", 0],
+      ]);
+    } finally { upgraded.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("upgrading recovers the last recorded chat model without changing model-less conversations", () => {
   const root = mkdtempSync(join(tmpdir(), "ria-chat-model-upgrade-"));
   const databaseFile = join(root, "app.db");

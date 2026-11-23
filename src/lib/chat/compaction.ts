@@ -1,5 +1,4 @@
 import type { UIMessage } from "ai";
-import { getTextFromUIMessage as readText } from "@/lib/ai/ui-message";
 import { conversationModelOf } from "@/lib/chat/conversation-model";
 import { db } from "@/db";
 import { t } from "@/lib/locale";
@@ -12,8 +11,8 @@ import { runBackgroundDataOperation } from "@/lib/server/data-operations";
 import { buildChatContext } from "./context";
 import { latestContextReport } from "./context-report";
 import { conversationWindow, storedFromSummary, storedSummary } from "./model-context";
-import { summarizeOlderTurns, type SummaryResult } from "./summary";
-import { createCompactionAllowance, type CompactionAllowance, type ConversationForSummary } from "./task-summary";
+import { attemptOlderTurnSummary, type SummaryAttempt } from "./summary";
+import { createCompactionAllowance, type CompactionAllowance } from "./task-summary";
 
 /**
  * Folding a conversation's older turns into its one summary, for whoever asks:
@@ -38,11 +37,11 @@ const FAILURES_BEFORE_PAUSE = 3, MESSAGES_BEFORE_RETRY = 10;
 const MAX_TRACKED_FAILURES = 200;
 
 type Failures = { count: number; atMessages: number };
-const state = globalThis as typeof globalThis & { chatCompactions?: Map<string, Promise<SummaryResult>>; chatCompactionFailures?: Map<string, Failures> };
-const jobs = state.chatCompactions ??= new Map<string, Promise<SummaryResult>>();
+const state = globalThis as typeof globalThis & { chatCompactions?: Map<string, Promise<SummaryAttempt>>; chatCompactionFailures?: Map<string, Failures> };
+const jobs = state.chatCompactions ??= new Map<string, Promise<SummaryAttempt>>();
 const failures = state.chatCompactionFailures ??= new Map<string, Failures>();
 
-function startJob(chatId: string, work: () => Promise<SummaryResult>) {
+function startJob(chatId: string, work: () => Promise<SummaryAttempt>) {
   const job = (async () => {
     try { return await work(); }
     catch (error) {
@@ -69,7 +68,6 @@ function recordOutcome(chatId: string, messages: number, succeeded: boolean) {
   if (failures.size > MAX_TRACKED_FAILURES) failures.delete(failures.keys().next().value!);
 }
 
-const turnRecords = (messages: UIMessage[]) => messages.map(message => ({ id: message.id, role: message.role, text: readText(message) }));
 const turnAllowance = async () => createCompactionAllowance((await getModelPreferences()).callLimits.compactionCallsPerTurn);
 
 /**
@@ -77,7 +75,7 @@ const turnAllowance = async () => createCompactionAllowance((await getModelPrefe
  * only; a restore is held off from the point there is something to write, since
  * the model call can then take a while and ends in a write.
  */
-export function compactAfterTurn(params: { chatId: string; modelRef: ModelRef; conversation?: () => ConversationForSummary | null }) {
+export function compactAfterTurn(params: { chatId: string; modelRef: ModelRef }) {
   const { chatId, modelRef } = params;
   return jobs.get(chatId) ?? startJob(chatId, async () => {
     const model = await modelInLibrary("chat", modelRef);
@@ -86,7 +84,7 @@ export function compactAfterTurn(params: { chatId: string; modelRef: ModelRef; c
     if (paused(chatId, messages.length)) return null;
     const window = await conversationWindow(model, modelRef, messages);
     const stored = await storedSummary(chatId);
-    const toolRecords = { covered: stored?.state.calls, replaysReasoning: modelRef.providerId === "deepseek" };
+    const toolRecords = { covered: stored?.state.calls, reasoningModel: modelRef };
     // The next turn is likely the size of this one. If that would not fit, fold now, so
     // that request finds the summary ready instead of waiting for it.
     let latestUser = 0;
@@ -106,25 +104,25 @@ export function compactAfterTurn(params: { chatId: string; modelRef: ModelRef; c
     const lastOlder = context.allMessages[context.omittedMessages - 1];
     if (stored?.coveredIds.includes(lastOlder.id)) return null;
     const allowance = await turnAllowance();
-    const result = await runBackgroundDataOperation(() => summarizeOlderTurns({ chatId, messages: turnRecords(context.allMessages), keepRecent: context.messages.length, force: true, modelRef, allowance, conversation: params.conversation?.() ?? undefined }));
-    recordOutcome(chatId, messages.length, Boolean(result));
+    const result = await runBackgroundDataOperation(() => attemptOlderTurnSummary({ chatId, messages: context.allMessages, keepRecent: context.messages.length, force: true, modelRef, allowance }));
+    recordOutcome(chatId, messages.length, result !== null && "summary" in result);
     return result;
   });
 }
 
 /**
- * For a request whose older turns no summary covers at all: the one a job already
- * running will write, or a new one. It keeps going if the request is cancelled,
+ * For a request that needs older turns the summary has yet to cover: use a job
+ * already running or start a new one. It keeps going if the request is cancelled,
  * because the next request needs the same summary.
  */
-export function compactForRequest(params: { chatId: string; messages: UIMessage[]; keepRecent: number; modelRef: ModelRef; allowance: CompactionAllowance }) {
-  const { chatId, messages, keepRecent, modelRef, allowance } = params;
+export function compactForRequest(params: { chatId: string; messages: UIMessage[]; keepRecent: number; modelRef: ModelRef; allowance: CompactionAllowance; allowPreviousModel?: boolean }) {
+  const { chatId, messages, keepRecent, modelRef, allowance, allowPreviousModel } = params;
   const running = jobs.get(chatId);
   if (running) return running;
   if (paused(chatId, messages.length)) return Promise.resolve(null);
   return startJob(chatId, async () => {
-    const result = await runBackgroundDataOperation(() => summarizeOlderTurns({ chatId, messages: turnRecords(messages), keepRecent, force: true, modelRef, allowance }));
-    recordOutcome(chatId, messages.length, Boolean(result));
+    const result = await runBackgroundDataOperation(() => attemptOlderTurnSummary({ chatId, messages, keepRecent, force: true, modelRef, allowance, allowPreviousModel }));
+    recordOutcome(chatId, messages.length, result !== null && "summary" in result);
     return result;
   });
 }
@@ -150,8 +148,8 @@ export async function compactOnRequest(params: { chatId?: string | null; focus?:
   // The model the conversation's turns use: the task's for a task's conversation, a template's, or the default.
   const modelRef = await conversationModelOf(chatId);
   const allowance = await turnAllowance();
-  const result = await startJob(chatId, () => runBackgroundDataOperation(() => summarizeOlderTurns({ chatId, messages: turnRecords(messages), keepRecent: messages.length - latestUser, force: true, modelRef, allowance, focus })));
-  if (!result) throw new ApiError({ code: "UPSTREAM_FAILED", message: t("chat.compact.failed") });
+  const result = await startJob(chatId, () => runBackgroundDataOperation(() => attemptOlderTurnSummary({ chatId, messages, keepRecent: messages.length - latestUser, force: true, modelRef, allowance, focus })));
+  if (!result || !("summary" in result)) throw new ApiError({ code: "UPSTREAM_FAILED", message: t("chat.compact.failed") });
   recordOutcome(chatId, messages.length, true);
   const freed = estimateContextTokens(older.map(message => message.parts)) + estimateTextTokens(before?.summary ?? "") - estimateTextTokens(result.summary);
   return { status: "compacted", freedTokens: Math.max(0, freed) };

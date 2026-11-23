@@ -98,6 +98,7 @@ interface Window {
       present: (token: string) => Promise<boolean>;
     };
     getRuntimeInfo: () => Promise<DesktopRuntimeInfo>;
+    pasteIntoChat?: () => Promise<boolean>;
     openLogsFolder: () => Promise<{ opened: boolean }>;
     getSettings: () => Promise<DesktopSettingsView>;
     saveSettings: (

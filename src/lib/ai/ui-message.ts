@@ -1,4 +1,5 @@
 import { thinkingRecordSchema, type ThinkingRecord } from "@/lib/chat/thinking";
+import { readReasoningReplay, reasoningReplaySchema } from "@/lib/models/reasoning-replay";
 import { messageInvocationSchema, messageNoticeSchema, readMessageInvocation, readMessageNotice, type MessageInvocation, type MessageNotice } from "@/lib/chat/invocation-schema";
 import { documentDiagnosticsSchema, type DocumentDiagnostics } from "@/lib/documents/diagnostics";
 import { UIMessage } from "ai";
@@ -6,6 +7,7 @@ import { z } from "zod";
 import { currentToolId } from "@/tools/legacy-names";
 import { documentSourceSchema, type DocumentSource } from "@/lib/documents/types";
 import { contextReportSchema, type ContextReport } from "@/lib/chat/context-report";
+import { modelRefSchema, type ModelRef } from "@/lib/models/preferences-schema";
 
 export type PersistedFilePart = {
   url: string;
@@ -70,6 +72,7 @@ export type PersistedAssistantToolMessagePayload = {
   runId?: string;
   runIds?: string[];
   modelLabel?: string;
+  answeredBy?: ModelRef;
   contextBudget?: ContextReport;
 };
 
@@ -176,21 +179,33 @@ export function decodePersistedUserMessage(content: string): PersistedUserMessag
   }
 }
 
-export type PersistedStep = { reasoning?: string; text?: string; calls: string[] };
-
-const persistedStepSchema = z.object({ reasoning: z.string().optional(), text: z.string().optional(), calls: z.array(z.string()) });
+const persistedStepSchema = z.object({
+  reasoning: z.string().optional(), text: z.string().optional(), calls: z.array(z.string()),
+  reasoningParts: z.array(z.object({ text: z.string(), replay: reasoningReplaySchema.optional() })).optional().catch(undefined),
+  toolReasoning: z.array(z.object({ id: z.string(), replay: reasoningReplaySchema })).optional().catch(undefined),
+});
+export type PersistedStep = z.infer<typeof persistedStepSchema>;
 
 /** Where the steps of a response begin and what each held. A single step needs no record. */
 export function stepsOfMessage(parts: UIMessage["parts"]): PersistedStep[] | undefined {
   const steps: PersistedStep[] = [{ calls: [] }];
   for (const part of parts) {
     const step = steps.at(-1)!;
-    if (part.type === "step-start") { if (step.calls.length || step.text || step.reasoning) steps.push({ calls: [] }); }
-    else if (part.type === "reasoning") step.reasoning = `${step.reasoning ?? ""}${part.text}`;
+    if (part.type === "step-start") { if (step.calls.length || step.text || step.reasoningParts?.length) steps.push({ calls: [] }); }
+    else if (part.type === "reasoning") {
+      step.reasoning = `${step.reasoning ?? ""}${part.text}`;
+      const replay = readReasoningReplay(part.providerMetadata);
+      (step.reasoningParts ??= []).push({ text: part.text, ...(replay ? { replay } : {}) });
+    }
     else if (part.type === "text") step.text = `${step.text ?? ""}${part.text}`;
-    else if ("toolCallId" in part && typeof part.toolCallId === "string") step.calls.push(part.toolCallId);
+    else if ("toolCallId" in part && typeof part.toolCallId === "string") {
+      step.calls.push(part.toolCallId);
+      const replay = "callProviderMetadata" in part ? readReasoningReplay(part.callProviderMetadata) : undefined;
+      if (replay) (step.toolReasoning ??= []).push({ id: part.toolCallId, replay });
+    }
   }
-  return steps.some(step => step.calls.length) ? steps : undefined;
+  for (const step of steps) if (!step.reasoningParts?.some(part => part.replay)) delete step.reasoningParts;
+  return steps.some(step => step.calls.length || step.reasoningParts) ? steps : undefined;
 }
 
 export function encodePersistedAssistantToolMessage(
@@ -246,6 +261,7 @@ export function decodePersistedAssistantToolMessage(
         } : {}),
       }));
 
+    const answeredBy = modelRefSchema.safeParse(parsed.answeredBy);
     return {
       type: "assistant-tool-message",
       text: parsed.text,
@@ -253,6 +269,7 @@ export function decodePersistedAssistantToolMessage(
       ...(typeof parsed.runId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(parsed.runId) ? { runId: parsed.runId } : {}),
       ...(Array.isArray(parsed.runIds) ? { runIds: [...new Set(parsed.runIds.filter((id): id is string => typeof id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(id)))].slice(-100) } : {}),
       ...(typeof parsed.modelLabel === "string" ? { modelLabel: parsed.modelLabel.slice(0, 240) } : {}),
+      ...(answeredBy.success ? { answeredBy: answeredBy.data } : {}),
       ...(contextReportSchema.safeParse(parsed.contextBudget).success ? { contextBudget: contextReportSchema.parse(parsed.contextBudget) } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(thinkingRecordSchema.safeParse(parsed.thinking).success ? { thinking: thinkingRecordSchema.parse(parsed.thinking) } : {}),

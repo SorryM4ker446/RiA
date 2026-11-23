@@ -135,10 +135,17 @@ test("over-budget approval preflight leaves the stored decision pending and exec
   const chat = await db.chat.create({ data: { title: "Budget refusal" } });
   const tool = { toolName: "createTask", toolCallId: "approval-tool", state: "approval-requested", input: { title: "Do not duplicate", prompt: "Do it.", cron: "0 9 * * *", timeZone: "UTC" }, approval: { id: "budget-approval" } };
   await db.message.create({ data: { chatId: chat.id, role: "user", clientMessageId: "approval-user", content: "Create one task" } });
-  const original = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "", reasoning: "0".repeat(60_000), tools: [tool] });
+  const reasoning = "0".repeat(60_000);
+  // Compatible native reasoning is still mandatory input on approval continuation.
+  const original = encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "", reasoning, tools: [tool], steps: [{
+    calls: [tool.toolCallId], reasoning, reasoningParts: [{ text: reasoning, replay: {
+      origin: { ...CHAT_MODEL_REF, protocol: "openrouter-chat-completions-v1", responseId: "01234567-89ab-4def-8123-456789abcdef" },
+      details: [{ type: "reasoning.text", text: reasoning, format: "anthropic-claude-v1", signature: "fixture" }],
+    } }],
+  }] });
   await db.message.create({ data: { chatId: chat.id, role: "assistant", clientMessageId: "approval-answer", content: original } });
   const messages: UIMessage[] = [ui("approval-user", "user", "Create one task"), { id: "approval-answer", role: "assistant", parts: [
-    { type: "reasoning", text: "0".repeat(60_000) }, { type: "tool-createTask", toolCallId: tool.toolCallId, input: tool.input, state: "approval-responded", approval: { ...tool.approval, approved: true } },
+    { type: "reasoning", text: reasoning }, { type: "tool-createTask", toolCallId: tool.toolCallId, input: tool.input, state: "approval-responded", approval: { ...tool.approval, approved: true } },
   ] }];
   const rejected = await route.POST(request({ chatId: chat.id, messages }));
   assert.equal(rejected.status, 413); assert.equal((await rejected.json()).error.code, "CONTEXT_LIMIT");

@@ -109,14 +109,29 @@ test("upload rejects unsupported, mismatched, excessive and oversized attachment
   for (const files of [
     [new File(["<svg/>"], "x.svg", { type: "image/svg+xml" })],
     [new File(["not a png"], "x.png", { type: "image/png" })],
-    Array.from({ length: 5 }, () => new File([testPng], "x.png", { type: "image/png" })),
+    Array.from({ length: MEDIA_LIMITS.attachmentCount + 1 }, () => new File([testPng], "x.png", { type: "image/png" })),
     [new File([new Uint8Array(MEDIA_LIMITS.attachmentBytes + 1)], "big.png", { type: "image/png" })],
-    Array.from({ length: 3 }, () => new File([new Uint8Array(7 * 1024 * 1024)], "total.png", { type: "image/png" })),
+    Array.from({ length: 4 }, () => new File([new Uint8Array(7 * 1024 * 1024)], "total.png", { type: "image/png" })),
   ]) {
     const response = await upload.POST(await multipart(files));
     assert.ok([400, 413].includes(response.status));
   }
   assert.equal(await db.mediaAsset.count({ where: {} }), 0);
+});
+
+test("six chat attachments at the combined size limit still leave generation references capped separately", async () => {
+  const files = Array.from({ length: MEDIA_LIMITS.attachmentCount }, (_, index) => {
+    const bytes = Buffer.alloc(MEDIA_LIMITS.totalAttachmentBytes / MEDIA_LIMITS.attachmentCount);
+    testPng.copy(bytes);
+    bytes[bytes.length - 1] = index;
+    return new File([bytes], `image-${index}.png`, { type: "image/png" });
+  });
+  const response = await upload.POST(await multipart(files));
+  assert.equal(response.status, 201);
+  const { data } = await response.json();
+  assert.equal(data.length, MEDIA_LIMITS.attachmentCount);
+  const { resolveImageInputs } = await import("@/lib/media/messages");
+  await assert.rejects(resolveImageInputs(data), (error: { code?: string }) => error.code === "VALIDATION_ERROR");
 });
 
 test("body limits are enforced even without Content-Length", async () => {

@@ -12,7 +12,7 @@ import { createMediaAsset, decodeImageDataUrl, getMediaAsset, readMediaAsset, to
 
 import { t } from "@/lib/locale";
 async function resolveAttachments(inputs: Array<{ url: string; mediaType?: string }>, allowDocuments: boolean) {
-  if (inputs.length > MEDIA_LIMITS.attachmentCount) throw new ApiError({ code: "VALIDATION_ERROR", message: t("server.attachment.tooMany") });
+  if (inputs.length > (allowDocuments ? MEDIA_LIMITS.attachmentCount : MEDIA_LIMITS.referenceCount)) throw new ApiError({ code: "VALIDATION_ERROR", message: t(allowDocuments ? "server.attachment.tooMany" : "server.attachment.tooManyImages") });
   const assets = [];
   for (const input of inputs) {
     const id = assetIdFromUrl(input.url);
@@ -142,10 +142,9 @@ export async function migrateMessageMedia(message: Message): Promise<Message> {
   }
 }
 
-export async function materializeChatAttachments(messages: UIMessage[], signal?: AbortSignal) {
-  // The model receives bytes read under the authenticated user, never an internal URL to fetch.
-  // Keep the newest attachment window; older files remain visible in stored conversation history.
-  let count = 0, bytes = 0, characters = 0;
+export async function materializeChatAttachments(messages: UIMessage[], signal?: AbortSignal, history = { count: 0, bytes: 0 }, keepCurrentImages = true) {
+  let characters = 0;
+  const sent = new Set<string>();
   const latestUserId = [...messages].reverse().find(message => message.role === "user")?.id;
   const result: UIMessage[] = [];
   for (const message of [...messages].reverse()) {
@@ -153,15 +152,27 @@ export async function materializeChatAttachments(messages: UIMessage[], signal?:
     for (const part of message.parts) {
       if (part.type !== "file") { parts.push(part); continue; }
       signal?.throwIfAborted();
-      const [asset] = await resolveChatAttachments([part]);
-      const isImage = asset.mediaType.startsWith("image/");
-      if (count >= MEDIA_LIMITS.attachmentCount || bytes + asset.byteSize > MEDIA_LIMITS.totalAttachmentBytes) {
-        // An image left out can still be built on by its id.
-        parts.push({ type: "text", text: `[Earlier attachment omitted from model context: ${part.filename || "file"}${isImage ? `, media id: ${asset.id}` : ""}]` });
+      const current = message.id === latestUserId;
+      const imageId = part.mediaType.startsWith("image/") ? assetIdFromUrl(part.url) : null;
+      if (imageId && (!current || !keepCurrentImages)) {
+        parts.push({ type: "text", text: `[Image attachment, media id: ${imageId}; use readConversationHistory with imageIds if pixels are needed.]` });
         continue;
       }
-      count += 1; bytes += asset.byteSize;
-      const data = await readMediaAsset(asset);
+      const asset = await resolveChatAttachments([part]).then(([found]) => found).catch(error => {
+        if (current || !(error instanceof ApiError) || error.code !== "NOT_FOUND") throw error;
+        return null;
+      });
+      if (!asset) { parts.push({ type: "text", text: "[Earlier attachment unavailable]" }); continue; }
+      if (imageId && sent.has(imageId)) continue;
+      if (!current && (history.count >= MEDIA_LIMITS.historyAttachmentCount || history.bytes + asset.byteSize > MEDIA_LIMITS.historyAttachmentBytes)) {
+        parts.push({ type: "text", text: `[Earlier attachment omitted from model context: ${part.filename || "file"}]` });
+        continue;
+      }
+      const data = await readMediaAsset(asset).catch(error => {
+        if (current || !(error instanceof ApiError) || error.code !== "NOT_FOUND") throw error;
+        return null;
+      });
+      if (!data) { parts.push({ type: "text", text: "[Earlier attachment unavailable]" }); continue; }
       if (isDocumentAttachment(asset.mediaType)) {
         const text = await parseChatDocument(data, asset.mediaType, signal);
         if (characters + text.length > CHAT_DOCUMENT_CHARACTERS) {
@@ -177,6 +188,8 @@ export async function materializeChatAttachments(messages: UIMessage[], signal?:
         parts.push({ type: "text", text: `[Image attachment, media id: ${asset.id}]` });
         parts.push({ ...part, url: `data:${asset.mediaType};base64,${data.toString("base64")}` });
       }
+      if (imageId) sent.add(imageId);
+      if (!current) { history.count++; history.bytes += asset.byteSize; }
     }
     result.unshift({ ...message, parts });
   }

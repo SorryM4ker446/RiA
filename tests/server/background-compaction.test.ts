@@ -18,18 +18,18 @@ process.env.RIA_TEST_PROVIDER = "1";
 const { db } = await import("@/db");
 const chatRoute = await import("@/app/api/chat/route");
 const toolRoute = await import("@/app/api/tools/run/route");
-const { compactAfterTurn, compactionsSettled } = await import("@/lib/chat/compaction");
+const { compactAfterTurn, compactForRequest, compactionsSettled } = await import("@/lib/chat/compaction");
 const { exclusiveDataOperation } = await import("@/lib/server/data-operations");
 const { internalAgentModel, getModelPreferences, modelInLibrary, removeModel, saveModelPreferences } = await import("@/lib/models/preferences");
 const { preferencesSchema } = await import("@/lib/models/preferences-schema");
-const { commitTurnFold } = await import("@/lib/chat/summary");
+const { commitTurnFold, keepRestoredContext } = await import("@/lib/chat/summary");
 const { buildChatContext } = await import("@/lib/chat/context");
-const { EMPTY_SUMMARY_STATE, foldIntoState } = await import("@/lib/chat/compaction-state");
+const { EMPTY_SUMMARY_STATE, foldIntoState, readSummaryState } = await import("@/lib/chat/compaction-state");
 const { changedFiles, restoredContext, RESTORED_SHARE } = await import("@/lib/chat/compaction-restore");
 const restoredText = async (params: Parameters<typeof restoredContext>[0]) => (await restoredContext(params)).text;
 const { lookupConversationHistory } = await import("@/lib/chat/history-lookup");
 const { recordedFacts, toolCallsIn } = await import("@/lib/chat/compaction-state");
-const { summarizeWithInternalAgent } = await import("@/lib/chat/task-summary");
+const { createCompactionAllowance, summarizeWithInternalAgent } = await import("@/lib/chat/task-summary");
 const { conversationCalibration, recordContextCalibration } = await import("@/lib/models/context-calibration");
 const { estimateTextTokens, MIN_CALIBRATION } = await import("@/lib/models/context-budget");
 const { historicalToolText, shownExcerptCharacters, summaryRecordCharacters } = await import("@/lib/chat/tool-history");
@@ -38,9 +38,10 @@ const { encodePersistedAssistantToolMessage } = await import("@/lib/ai/ui-messag
 const { createGrant, revokeGrant } = await import("@/lib/local-files/grants");
 const { buildSystemPrompt, conversationWindow } = await import("@/lib/chat/model-context");
 const { createStepContext } = await import("@/lib/chat/step-context");
-const { contextBudget } = await import("@/lib/models/context-budget");
+const { contextBudget, estimateContextTokens } = await import("@/lib/models/context-budget");
 const { getToolDescriptor } = await import("@/tools/builtins");
 const { mapStoredMessagesToUI } = await import("@/features/chat/page-utils");
+const { updateConversation } = await import("@/lib/conversations/mutations");
 
 const readProjectHash = (root: string, name: string) => createHash("sha256").update(readFileSync(join(root, name))).digest("hex").slice(0, 16);
 const OTHER_MODEL = { providerId: "openrouter" as const, modelId: "google/gemini-3-flash-preview" };
@@ -79,7 +80,7 @@ function answers(t: TestContext, text = "Answered.") {
   return prompts;
 }
 /** A summary call that waits until released, and what it was asked. */
-function gatedSummary(t: TestContext) {
+function gatedSummary(t: TestContext, text = "Earlier: the user is planning a trip to Lisbon.") {
   const inputs: string[] = [];
   let release!: () => void, started!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -88,7 +89,7 @@ function gatedSummary(t: TestContext) {
     inputs.push(JSON.stringify(options.prompt));
     started();
     await gate;
-    return summaryAnswer("Earlier: the user is planning a trip to Lisbon.");
+    return summaryAnswer(text);
   });
   return { inputs, release, reached };
 }
@@ -159,25 +160,202 @@ test("stopping while context is being organized closes the run and the summary s
   assert.match((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summary!, /Lisbon/);
 });
 
-test("a conversation with an older summary answers at once from it and excerpts, and a finished turn catches up in the background", async t => {
+const unseenConstraint = "Keep the settlement batch at exactly 37 lines.";
+
+async function summaryWithGap() {
   await capacity(32_000);
   const { chat, history } = await longChat(12);
   const covered = await db.message.findFirstOrThrow({ where: { chatId: chat.id, clientMessageId: "assistant-1" } });
   await db.chat.update({ where: { id: chat.id }, data: { summary: "[Task state v1]\nOld summary of the first turns.", summaryUpToMessageId: covered.id, summaryRevision: 0, historyRevision: 0 } });
-  const summary = gatedSummary(t), prompts = answers(t);
+  const text = `${words("Earlier setup", 700)}\n${unseenConstraint}\n${words("Further setup", 700)}`;
+  const message = await db.message.findFirstOrThrow({ where: { chatId: chat.id, clientMessageId: "user-2" } });
+  await db.message.update({ where: { id: message.id }, data: { content: text } });
+  history.find(item => item.id === "user-2")!.parts = [{ type: "text", text }];
+  return { chat, history, covered, message };
+}
+
+test("the answer waits for an uncovered constraint and the summary only advances after reading it", async t => {
+  const { chat, history, covered, message } = await summaryWithGap();
+  const summary = gatedSummary(t, `Earlier task state. ${unseenConstraint}`), prompts = answers(t);
   const response = await post({ chatId: chat.id, messages: [...history, latest()] });
-  const wire = await wireText(response);
-  assert.match(wire, /Answered/, "the answer did not wait for the gated summary");
-  assert.doesNotMatch(wire, /data-context-status/);
-  assert.match(prompts[0], /Old summary of the first turns/);
-  assert.match(prompts[0], /Incomplete excerpts/, "the gap behind the summary is filled with excerpts");
-  await summary.reached;
-  summary.release();
-  await compactionsSettled();
+  const reader = response.body!.getReader();
+  try {
+    assert.match(await firstChunk(reader), /"organizing":true/);
+    await summary.reached;
+    assert.equal(prompts.length, 0);
+    assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summaryUpToMessageId, covered.id);
+    assert.ok(summary.inputs[0].includes(unseenConstraint));
+    assert.match(summary.inputs[0], /Old summary of the first turns/);
+  } finally {
+    summary.release();
+  }
+  assert.match(await readAll(reader), /Answered/);
+  assert.ok(prompts[0].includes(unseenConstraint));
+  assert.doesNotMatch(prompts[0], /Incomplete excerpts/);
   const saved = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
-  assert.match(saved.summary!, /Lisbon/);
-  assert.notEqual(saved.summaryUpToMessageId, covered.id, "coverage moved forward");
-  assert.match(summary.inputs[0], /Old summary of the first turns/, "built on the earlier summary");
+  const end = await db.message.findUniqueOrThrow({ where: { id: saved.summaryUpToMessageId! } });
+  assert.ok(end.createdAt >= message.createdAt);
+});
+
+test("a failed summary keeps its coverage and the background job reads the missing evidence from storage", async t => {
+  const { chat, history, covered } = await summaryWithGap();
+  const inputs: string[] = [];
+  t.mock.method(languageModel, "doGenerate", async options => {
+    inputs.push(JSON.stringify(options.prompt));
+    throw new Error("summary provider unavailable");
+  });
+  const prompts = answers(t);
+  const wire = await wireText(await post({ chatId: chat.id, messages: [...history, latest()] }));
+  assert.match(wire, /Answered/);
+  assert.match(prompts[0], /Incomplete excerpts[\s\S]*messageId user-2[\s\S]*verify it with readConversationHistory/);
+  assert.ok(!prompts[0].includes(unseenConstraint), "the bounded excerpt really misses the constraint");
+  await compactionsSettled();
+  assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summaryUpToMessageId, covered.id);
+  assert.ok(inputs.length > 1, "the background job also attempted to catch up");
+  assert.ok(inputs.every(prompt => prompt.includes(unseenConstraint)), "both summary requests used the missing stored message");
+  const recovered = await lookupConversationHistory(chat.id, { messageId: "user-2", offset: words("Earlier setup", 700).length });
+  assert.ok("text" in recovered && recovered.text.includes(unseenConstraint));
+});
+
+test("an exhausted summary passes completed work to the current request without advancing coverage", async t => {
+  const { chat, history, covered } = await summaryWithGap();
+  const settings = await getModelPreferences();
+  await saveModelPreferences({ ...settings, callLimits: { ...settings.callLimits, compactionCallsPerTurn: 1 } });
+  const inputs: string[] = [];
+  t.mock.method(languageModel, "doGenerate", async options => {
+    inputs.push(JSON.stringify(options.prompt));
+    if (inputs.length === 1) return summaryAnswer(unseenConstraint);
+    throw new Error("background summary unavailable");
+  });
+  const prompts = answers(t);
+  assert.match(await wireText(await post({ chatId: chat.id, messages: [...history, latest()] })), /Answered/);
+  assert.ok(inputs[0].includes(unseenConstraint), "the successful batch read the exact constraint");
+  assert.match(prompts[0], /Incomplete summary from completed batches/);
+  assert.ok(prompts[0].includes(unseenConstraint), "the first chat request receives the constraint from the completed batch");
+  assert.match(prompts[0], /Incomplete excerpts[\s\S]*verify it with readConversationHistory/);
+  await compactionsSettled();
+  const chatAfter = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
+  assert.equal(chatAfter.summaryUpToMessageId, covered.id);
+  assert.equal(chatAfter.summary, "[Task state v1]\nOld summary of the first turns.");
+  const user = await db.message.findFirstOrThrow({ where: { chatId: chat.id, clientMessageId: "latest" } });
+  assert.doesNotMatch(user.requestContext ?? "", /Incomplete summary from completed batches/);
+});
+
+test("an exhausted summary restores the current contents of a named file even when its draft dropped the value", async t => {
+  const { chat, covered } = await summaryWithGap();
+  const settings = await getModelPreferences();
+  await saveModelPreferences({ ...settings, callLimits: { ...settings.callLimits, compactionCallsPerTurn: 1 } });
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-restore-")));
+  const grant = await createGrant({ path: root });
+  try {
+    const file = "release-contract.txt";
+    const untouched = "release-contract.txt.backup";
+    writeFileSync(join(root, file), "Current approval code: RELEASE-CURRENT-792\n");
+    writeFileSync(join(root, untouched), "UNREQUESTED-FILE-BODY\n");
+    await db.chat.update({ where: { id: chat.id }, data: { workspaceGrantId: grant.id } });
+    const tools = [file, untouched].map((path, index) => ({ toolName: "readProjectFile", toolCallId: `read-contract-${index}`,
+      state: "output-available", input: { grantId: grant.id, path }, output: { path, hash: "old", lines: [{ line: 1, text: "Previously read contract." }] } }));
+    await db.message.updateMany({ where: { chatId: chat.id, clientMessageId: "assistant-2" }, data: {
+      content: encodePersistedAssistantToolMessage({ type: "assistant-tool-message", text: "Earlier file reads.", tools }),
+    } });
+    let calls = 0;
+    t.mock.method(languageModel, "doGenerate", async () => {
+      if (++calls === 1) return summaryAnswer("The user is preparing a release.");
+      throw new Error("background summary unavailable");
+    });
+    const prompts = answers(t);
+    assert.match(await wireText(await post({ chatId: chat.id, messages: [...await loaded(chat.id), latest(`Verify ${file}.`)] })), /Answered/);
+    assert.match(prompts[0], /Incomplete summary from completed batches[\s\S]*preparing a release/);
+    assert.match(prompts[0], /File release-contract\.txt as read for this request:[\s\S]*RELEASE-CURRENT-792/);
+    assert.doesNotMatch(prompts[0], /UNREQUESTED-FILE-BODY/);
+    await compactionsSettled();
+    assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summaryUpToMessageId, covered.id);
+  } finally {
+    await revokeGrant(grant.id);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a smaller window can use the last actual model to cover the omitted history in one call", async t => {
+  for (const scenario of ["eligible", "high effort", "mandatory thinking", "high effort on a non-reasoning model", "one call left", "previous unavailable", "previous costs more", "auxiliary chosen", "legacy reply", "room for batches"] as const) {
+    await t.test(scenario, async t => {
+      await capacity(14_000);
+      const settings = await getModelPreferences();
+      settings.contextLimits[`${OTHER_MODEL.providerId}:${OTHER_MODEL.modelId}`] = { contextLength: 100_000, maxOutputTokens: 4096 };
+      const previousReasoning = scenario === "mandatory thinking" ? { mandatory: true } : scenario === "high effort on a non-reasoning model" ? null : undefined;
+      settings.library = settings.library.map(model => model.modelId === OTHER_MODEL.modelId || model.modelId === CHAT_MODEL_REF.modelId
+        ? { ...model, contextLength: model.modelId === OTHER_MODEL.modelId ? 100_000 : 14_000,
+          ...(model.modelId === OTHER_MODEL.modelId ? { reasoning: previousReasoning } : {}),
+          pricing: { prompt: model.modelId === OTHER_MODEL.modelId && scenario === "previous costs more" ? "0.000002" : "0.000001", completion: "0.000003" } } : model);
+      if (scenario === "auxiliary chosen") settings.auxiliary = CHAT_MODEL_REF;
+      if (scenario === "high effort" || scenario === "high effort on a non-reasoning model") settings.thinking.effort = "high";
+      await db.workspacePreference.update({ where: { id: "local" }, data: { settings } });
+      const { chat, history } = await longChat(5);
+      const prior = await db.message.findFirstOrThrow({ where: { chatId: chat.id, role: "assistant" }, orderBy: { createdAt: "desc" } });
+      await db.message.update({ where: { id: prior.id }, data: { content: encodePersistedAssistantToolMessage({
+        type: "assistant-tool-message", tools: [], text: prior.content, modelLabel: `${CHAT_MODEL_REF.providerId}/${CHAT_MODEL_REF.modelId}`,
+        ...(scenario === "legacy reply" ? {} : { answeredBy: OTHER_MODEL }),
+      }) } });
+      const usesPrevious = scenario === "eligible" || scenario === "high effort on a non-reasoning model";
+      const inputs: string[] = [];
+      t.mock.method(languageModel, "doGenerate", async options => {
+        inputs.push(JSON.stringify(options.prompt));
+        if (scenario === "previous unavailable" && inputs.length === 1
+          || scenario === "one call left" && inputs.at(-1)?.includes("assistant turn 3 marker-3")) throw new Error("Provider unavailable");
+        if (usesPrevious) assert.ok((options.maxOutputTokens ?? Infinity) <= 2048);
+        return summaryAnswer("Kept the evidence.");
+      });
+      const allowance = createCompactionAllowance(scenario === "room for batches" ? 20 : scenario === "one call left" ? 1 : 2);
+      const result = await compactForRequest({ chatId: chat.id, messages: history, keepRecent: 2, modelRef: CHAT_MODEL_REF, allowance, allowPreviousModel: true });
+      const saved = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
+      if (usesPrevious) {
+        assert.equal(inputs.length, 1);
+        assert.match(inputs[0], /user turn 0 marker-0[\s\S]*assistant turn 3 marker-3/);
+        const boundary = await db.message.findFirstOrThrow({ where: { chatId: chat.id, clientMessageId: "assistant-3" } });
+        assert.equal(saved.summaryUpToMessageId, boundary.id);
+        assert.equal(saved.summaryModelId, `${OTHER_MODEL.providerId}:${OTHER_MODEL.modelId}`);
+        assert.equal(allowance.remaining, 1);
+      } else if (scenario === "room for batches") {
+        assert.ok(inputs.length > 1);
+        assert.equal(saved.summaryModelId, `${CHAT_MODEL_REF.providerId}:${CHAT_MODEL_REF.modelId}`);
+        assert.ok(saved.summaryUpToMessageId);
+      } else if (scenario === "one call left") {
+        assert.equal(inputs.length, 1);
+        assert.doesNotMatch(inputs[0], /assistant turn 3 marker-3/);
+        assert.deepEqual(allowance, { remaining: 0, exhausted: true });
+        assert.ok(result && "draft" in result && result.draft === "Kept the evidence.");
+        assert.equal(saved.summaryUpToMessageId, null);
+      } else {
+        assert.equal(inputs.length, 2);
+        if (scenario === "previous unavailable") assert.match(inputs[0], /assistant turn 3 marker-3/);
+        else assert.doesNotMatch(inputs[0], /assistant turn 3 marker-3/);
+        assert.doesNotMatch(inputs[1], /assistant turn 3 marker-3/);
+        assert.ok(result && "draft" in result);
+        assert.equal(saved.summaryUpToMessageId, null);
+        assert.equal(allowance.exhausted, true);
+      }
+    });
+  }
+});
+
+test("an in-turn fold advances only across continuous evidence from the current history", async () => {
+  const { chat, history, covered, message } = await summaryWithGap();
+  const read = () => db.chat.findUniqueOrThrow({ where: { id: chat.id } });
+  const original = await read();
+  const folded = { chatId: chat.id, historyRevision: original.historyRevision, expected: original.summary, summary: unseenConstraint, change: {}, modelId: "openrouter:m" };
+  const throughNextTurn = history.slice(4, 8).map(item => item.id);
+  assert.equal(await commitTurnFold({ ...folded, coveredMessageIds: throughNextTurn.filter(id => id !== "user-2") }), false);
+  assert.equal((await read()).summaryUpToMessageId, covered.id);
+
+  const { saveChatMessage } = await import("@/lib/chat/store");
+  await saveChatMessage({ chatId: chat.id, role: "user", clientMessageId: message.clientMessageId!, content: "Revised requirements", updateExisting: true });
+  assert.equal(await commitTurnFold({ ...folded, coveredMessageIds: throughNextTurn }), false);
+  assert.equal((await read()).summaryUpToMessageId, covered.id);
+
+  const revised = await read();
+  assert.equal(await commitTurnFold({ ...folded, historyRevision: revised.historyRevision, expected: revised.summary, summary: "Revised requirements", coveredMessageIds: throughNextTurn }), true);
+  const newBoundary = await db.message.findFirstOrThrow({ where: { chatId: chat.id, clientMessageId: throughNextTurn.at(-1) } });
+  assert.equal((await read()).summaryUpToMessageId, newBoundary.id);
 });
 
 test("a summary survives the turns after it: saving an answer leaves it, and only rewriting what it covers clears it", async () => {
@@ -327,7 +505,7 @@ test("a later turn gets the real tool records in full, and a call that never fin
   assert.doesNotMatch(JSON.stringify(prompt.at(-1)), /Incomplete excerpts/);
 });
 
-test("DeepSeek gets stored reasoning back with a tool turn, and a model without tools gets text", () => {
+test("an old tool turn keeps its calls and text without replaying unattributed reasoning", () => {
   const turn: UIMessage = { id: "a", role: "assistant", parts: [
     { type: "reasoning", text: "thought", state: "done" }, { type: "text", text: "Done" },
     { type: "tool-webSearch", toolCallId: "c", state: "output-available", input: {}, output: { hits: 1 } },
@@ -335,11 +513,11 @@ test("DeepSeek gets stored reasoning back with a tool turn, and a model without 
   const ask: UIMessage = { id: "u", role: "user", parts: [{ type: "text", text: "go" }] };
   const earlier: UIMessage = { id: "u0", role: "user", parts: [{ type: "text", text: "before" }] };
   const types = (options: Parameters<typeof buildChatContext>[1], message = turn) => buildChatContext([earlier, message, ask], options).messages[1].parts.map(part => part.type);
-  assert.deepEqual(types({ toolRecords: { replaysReasoning: true } }), ["reasoning", "tool-webSearch", "step-start", "text"]);
+  assert.deepEqual(types({ toolRecords: { reasoningModel: { providerId: "deepseek", modelId: "deepseek-flash" } } }), ["tool-webSearch", "step-start", "text"]);
   assert.deepEqual(types({ toolRecords: {} }), ["tool-webSearch", "step-start", "text"]);
   assert.deepEqual(types({}), ["text"], "without tools, a record of them would be refused");
   const noReasoning = { ...turn, parts: turn.parts.filter(part => part.type !== "reasoning") };
-  assert.deepEqual(types({ toolRecords: { replaysReasoning: true } }, noReasoning), ["tool-webSearch", "step-start", "text"], "DeepSeek accepts a tool turn without reasoning, so the record stays");
+  assert.deepEqual(types({ toolRecords: {} }, noReasoning), ["tool-webSearch", "step-start", "text"], "the record stays without reasoning");
   const noText = { ...turn, parts: turn.parts.filter(part => part.type === "tool-webSearch") };
   const ending = buildChatContext([earlier, noText, ask], { toolRecords: {} }).messages[1].parts.at(-1)!;
   assert.equal(ending.type, "text", "a turn always ends in text, so it cannot read as a tool loop still running");
@@ -352,11 +530,11 @@ test("there is one summary: it leads the prompt, and tool work folded during a t
     { toolName: "searchKnowledge", toolCallId: "folded-call", state: "output-available", input: { query: "old" }, output: { body: "FOLDED-RESULT" } },
     { toolName: "searchKnowledge", toolCallId: "kept-call", state: "output-available", input: { query: "new" }, output: { body: "KEPT-RESULT" } },
   ] }) } });
-  assert.equal(await commitTurnFold({ chatId: chat.id, expected: null, summary: "[Task state v1]\nFolded the first search.", change: { calls: ["folded-call"], toolCalls: [{ toolName: "readProjectFile", input: { grantId: "g", path: "a.ts" } }, { toolName: "readPluginSkill", input: { packageId: "pkg" } }] }, modelId: "openrouter:m" }), true);
+  assert.equal(await commitTurnFold({ chatId: chat.id, historyRevision: chat.historyRevision, expected: null, summary: "[Task state v1]\nFolded the first search.", change: { calls: ["folded-call"], toolCalls: [{ toolName: "readProjectFile", input: { grantId: "g", path: "a.ts" } }, { toolName: "readPluginSkill", input: { packageId: "pkg" } }] }, modelId: "openrouter:m" }), true);
   const saved = await db.chat.findUniqueOrThrow({ where: { id: chat.id } });
   assert.equal(saved.summaryUpToMessageId, null, "it ends at no message yet");
   assert.deepEqual(JSON.parse(saved.summaryState!), { calls: ["folded-call"], files: [{ grantId: "g", path: "a.ts" }], skills: ["pkg"], log: [] });
-  assert.equal(await commitTurnFold({ chatId: chat.id, expected: null, summary: "stale", change: {}, modelId: "m" }), false, "a fold from before another write is refused");
+  assert.equal(await commitTurnFold({ chatId: chat.id, historyRevision: chat.historyRevision, expected: null, summary: "stale", change: {}, modelId: "m" }), false, "a fold from before another write is refused");
   assert.equal((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summary, "[Task state v1]\nFolded the first search.");
 
   const prompts = answers(t);
@@ -443,6 +621,36 @@ test("a step that still does not fit gives up what was put back, then shortens t
   assert.match(text, /HEAD-new/); assert.match(text, /TAIL-new/);
   assert.ok(text.length < 20_000, "the newest result is an excerpt now");
   assert.ok(manager.report.estimatedInputTokens <= manager.report.budget.inputTokens);
+});
+
+test("an optional summary draft does not push a fitting prompt into another fold", async () => {
+  const budget = contextBudget({ contextLength: 4096, maxOutputTokens: 512 });
+  const system = "system";
+  const message: ModelMessage = { role: "user", content: "" };
+  while (estimateContextTokens({ system, messages: [message] }) < budget.triggerTokens - 50) message.content += " evidence";
+  const manager = createStepContext({ budget, system, partialHistory: { draft: "PARTIAL-DRAFT ".repeat(150) },
+    summarize: async () => { throw new Error("the draft must not trigger a new summary"); } });
+  const { messages } = await manager.prepare([message]);
+  assert.deepEqual(messages, [message]);
+  assert.equal(manager.report.compactions, 0);
+  assert.ok(manager.report.estimatedInputTokens < budget.triggerTokens);
+});
+
+test("a workspace switch after preparing a draft prevents submission of restored file contents", async () => {
+  let workspaceId: string | null = "first-workspace";
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 16_000 }), system: "system", summarize: async () => "unused",
+    partialHistory: { draft: "SUMMARY-DRAFT", files: { text: "WORKSPACE-FILE-CONTENTS", workspaceId } },
+    restoreWorkspace: async () => workspaceId });
+  const input: ModelMessage[] = [{ role: "user", content: "Continue" }];
+  assert.match(JSON.stringify((await manager.prepare(input)).messages), /WORKSPACE-FILE-CONTENTS/);
+  await manager.authorizeRestoredContext();
+
+  workspaceId = "next-workspace";
+  await assert.rejects(() => manager.authorizeRestoredContext(), { code: "FORBIDDEN" });
+  const updated = JSON.stringify((await manager.prepare(input)).messages);
+  assert.match(updated, /SUMMARY-DRAFT/);
+  assert.doesNotMatch(updated, /WORKSPACE-FILE-CONTENTS/);
+  await manager.authorizeRestoredContext();
 });
 
 test("what was put back sits under the summary, unchanged from request to request, so a prompt cache keeps matching it", async () => {
@@ -681,7 +889,10 @@ test("what was put back is read once and sent unchanged, and a later change is r
     assert.ok(first.text.indexOf("File newer.ts") < first.text.indexOf("File old.ts"), "the most recently modified first, though it was read earlier");
     assert.equal(first.seen.length, 2);
     let reads = 0;
-    const manager = createStepContext({ budget: contextBudget({ contextLength: 200_000 }), system: "system", summarize: async () => "unused", handoff: { state: "the summary", calls: [], restored: first.text }, restoreAfterFold: async () => { reads++; return "read again"; } });
+    let workspaceId: string | null = grant.id;
+    const manager = createStepContext({ budget: contextBudget({ contextLength: 200_000 }), system: "system", summarize: async () => "unused",
+      handoff: { state: "the summary", calls: [], restored: { version: 1, text: first.text, workspaceId } },
+      restoreWorkspace: async () => workspaceId, restoreAfterFold: async (_inUse, workspaceId) => { reads++; return workspaceId === grant.id ? "read again" : ""; } });
     writeFileSync(join(root, "old.ts"), "second version\n");
     const { messages } = await manager.prepare([{ role: "user", content: "go" }]);
     assert.equal(reads, 0);
@@ -695,7 +906,70 @@ test("what was put back is read once and sent unchanged, and a later change is r
     assert.match(await changedFiles({ seen, grantId: grant.id }), /newer\.ts \(no longer exists\)/);
     assert.equal(await changedFiles({ seen: new Map([["old.ts", readProjectHash(root, "old.ts")]]), grantId: grant.id }), "", "the model's own latest view is not news");
     await revokeGrant(grant.id);
+    workspaceId = null;
+    await assert.rejects(() => manager.authorizeRestoredContext(), { code: "FORBIDDEN" });
+    const afterRevocation = await manager.prepare([{ role: "user", content: "continue" }]);
+    assert.doesNotMatch(afterRevocation.messages[0].content as string, /first version|old\.ts/);
+    await manager.authorizeRestoredContext();
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("the next chat request restores the five most recently modified files from its active workspace", async t => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-restore-")));
+  const other = realpathSync.native(mkdtempSync(join(tmpdir(), "ria-restore-")));
+  const grant = await createGrant({ path: root }), nextGrant = await createGrant({ path: other });
+  try {
+    const path = "contract.txt";
+    writeFileSync(join(root, path), "FIRST-WORKSPACE-CONTRACT\n");
+    writeFileSync(join(other, path), "SECOND-WORKSPACE-CONTRACT\n");
+    const chat = await db.chat.create({ data: { title: "Scoped restore", workspaceGrantId: grant.id, ephemeral: true } });
+    const boundary = await db.message.create({ data: { chatId: chat.id, role: "assistant", content: "Earlier work completed.", createdAt: new Date(1000) } });
+    const summary = "[Task state v1]\nEarlier work completed.";
+    const earlier = "earlier.txt";
+    writeFileSync(join(root, earlier), "EARLIER-FILE-BODY\n");
+    utimesSync(join(root, earlier), new Date(2020, 0, 1), new Date(2020, 0, 1));
+    const newer = Array.from({ length: 4 }, (_, index) => {
+      const path = `note-${index}.txt`;
+      writeFileSync(join(root, path), `RECENT-NOTE-${index}\n`);
+      return { grantId: grant.id, path };
+    });
+    const files = [...[grant, nextGrant].map(item => ({ grantId: item.id, path })), { grantId: grant.id, path: earlier }, ...newer];
+    assert.equal(readSummaryState(JSON.stringify({ restored: "UNSCOPED-LEGACY-CONTENT" })).restored, undefined);
+    await db.chat.update({ where: { id: chat.id }, data: { summary, summaryRevision: 0, summaryUpToMessageId: boundary.id,
+      summaryState: JSON.stringify({ ...EMPTY_SUMMARY_STATE, files, restored: { workspaceId: grant.id, text: "STALE-RESTORE-ORDER" } }) } });
+    const prompts = answers(t);
+    const ask = async (id: string) => {
+      const response = await post({ chatId: chat.id, messages: [{ ...latest(`Check ${earlier} and ${path}.`), id }] });
+      assert.match(await wireText(response), /Answered/);
+      await compactionsSettled();
+      return prompts.at(-1)!;
+    };
+    const saved = async () => readSummaryState((await db.chat.findUniqueOrThrow({ where: { id: chat.id } })).summaryState);
+    const first = await ask("on-first-workspace");
+    assert.match(first, /FIRST-WORKSPACE-CONTRACT/);
+    assert.equal(first.match(/RECENT-NOTE-/g)?.length, 4);
+    assert.doesNotMatch(first, /STALE-RESTORE-ORDER|SECOND-WORKSPACE-CONTRACT|EARLIER-FILE-BODY/);
+    const firstSnapshot = (await saved()).restored!;
+    assert.equal(firstSnapshot.workspaceId, grant.id);
+
+    await updateConversation(chat.id, { workspaceGrantId: nextGrant.id });
+    assert.equal(await keepRestoredContext({ chatId: chat.id, expected: summary, restored: firstSnapshot, seen: [] }), false);
+    const second = await ask("on-second-workspace");
+    assert.match(second, /SECOND-WORKSPACE-CONTRACT/);
+    assert.doesNotMatch(second, /FIRST-WORKSPACE-CONTRACT/);
+    assert.equal((await saved()).restored?.workspaceId, nextGrant.id);
+
+    await revokeGrant(nextGrant.id);
+    const revoked = await ask("after-revocation");
+    assert.doesNotMatch(revoked, /FIRST-WORKSPACE-CONTRACT|SECOND-WORKSPACE-CONTRACT/);
+    assert.match(revoked, /Earlier work completed/);
+    assert.deepEqual((await saved()).restored, { version: 1, workspaceId: null, text: "" });
+  } finally {
+    await revokeGrant(grant.id);
+    await revokeGrant(nextGrant.id);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(other, { recursive: true, force: true });
+  }
 });
 
 test("an exact record of what was done travels under the summary, written by no model", async () => {
@@ -703,13 +977,13 @@ test("an exact record of what was done travels under the summary, written by no 
     { role: "assistant", content: [{ type: "tool-call", toolName: "runTerminalCommand", toolCallId: "run", input: { command: "npm test" } }, { type: "tool-call", toolName: "editProjectFile", toolCallId: "edit", input: { grantId: "g", path: "a.ts" } }] },
     { role: "tool", content: [{ type: "tool-result", toolName: "runTerminalCommand", toolCallId: "run", output: { type: "json", value: { exitCode: 2 } } }, { type: "tool-result", toolName: "editProjectFile", toolCallId: "edit", output: { type: "json", value: { path: "a.ts", created: false, added: 3, removed: 1, hash: "h1" } } }] },
   ];
-  const state = foldIntoState({ ...EMPTY_SUMMARY_STATE, restored: "from the summary before" }, { toolCalls: toolCallsIn(messages) });
+  const state = foldIntoState({ ...EMPTY_SUMMARY_STATE, restored: { version: 1, text: "from the summary before", workspaceId: null } }, { toolCalls: toolCallsIn(messages) });
   assert.equal(state.restored, undefined, "what was put back belonged to the summary before");
   assert.equal(state.files[0].hash, "h1");
   assert.match(recordedFacts(state), /ran: npm test -> exit 2/);
   assert.match(recordedFacts(state), /edited: a\.ts \(\+3 -1\)/);
   assert.equal(recordedFacts(EMPTY_SUMMARY_STATE), "");
-  const manager = createStepContext({ budget: contextBudget({ contextLength: 200_000 }), system: "system", summarize: async () => "unused", handoff: { state: "the summary", calls: [], restored: "" }, recorded: () => recordedFacts(state) });
+  const manager = createStepContext({ budget: contextBudget({ contextLength: 200_000 }), system: "system", summarize: async () => "unused", handoff: { state: "the summary", calls: [] }, recorded: () => recordedFacts(state) });
   assert.match((await manager.prepare([{ role: "user", content: "go" }])).messages[0].content as string, /the summary\n\nRecorded by the application[\s\S]*npm test/);
 });
 

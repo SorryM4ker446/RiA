@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { TEST_ACCESS_TOKEN } from "../helpers/workspace-entry";
 import { fixtureLibraryItem, modelsRouteFixture } from "../helpers/model-fixture";
+import { MEDIA_LIMITS } from "../../src/lib/media/limits-constants";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8XcAAAAASUVORK5CYII=", "base64");
 
@@ -23,7 +24,7 @@ test("chunked uploads without Content-Length receive a structured size error", a
     request.on("error", reject);
     request.setTimeout(10_000, () => request.destroy(new Error("Chunked upload timed out")));
     const chunk = Buffer.alloc(1024 * 1024);
-    for (let index = 0; index < 23; index++) request.write(chunk);
+    for (let index = 0; index <= MEDIA_LIMITS.uploadBodyBytes / chunk.length; index++) request.write(chunk);
     request.end();
   });
   expect(result.status).toBe(413);

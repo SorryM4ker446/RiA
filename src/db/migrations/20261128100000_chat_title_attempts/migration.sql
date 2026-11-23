@@ -1,0 +1,1 @@
+ALTER TABLE "chats" ADD COLUMN "titleAttempts" INTEGER NOT NULL DEFAULT 0;

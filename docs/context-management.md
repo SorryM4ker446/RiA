@@ -101,6 +101,14 @@ millions of bytes. Other binary attachments still count one token per byte.
 This is a planning estimate, not a provider tokenizer or billing
 count, and provider-added hidden context cannot be counted locally.
 
+Picture IDs and source messages stay available after compaction. Earlier pictures
+generally travel as references. A visual question can read their saved pixels with
+`readConversationHistory` and `imageIds`. The step attaches the result only when
+the active model can see images, keeping each picture with its ID. Current
+attachments take priority and repeated IDs share one visual payload per step.
+The saved context report records the actual image count, estimated visual tokens
+and Base64 size separately. [Media storage](media-storage.md)
+
 Within a tool loop, a step is measured from provider usage when it can be: while
 nothing has been folded since the previous step, its size is the input tokens the
 provider reported for that step plus the calibrated estimate of the messages
@@ -131,8 +139,7 @@ use everything under the compaction trigger, measured in the same estimated
 tokens, and travel with their real tool calls and results, so a later turn can use
 what an earlier one read. Only a very long tool input, such as a whole script, is
 cut to an excerpt, and a call that never finished stays as a note, since it has no
-result to pair with. DeepSeek gets the stored reasoning back with a tool turn when
-there is any, and accepts one without; other providers get none. A model or assistant without tools gets every turn as text. Turns beyond the window are covered
+result to pair with. A model or assistant without tools gets every turn as text. Turns beyond the window are covered
 by the conversation summary and labelled excerpts; the per-step check then compacts
 within the request as needed. The window starts right after the last message the
 current summary covers for as long as the turns after it fit. Only when they no
@@ -142,9 +149,22 @@ no room. The turn just before a request stays however large its tool results, as
 as what cannot be shortened fits: the per-step check shortens the results below, so
 the model still knows what it just did, such as a command it ran. The start therefore holds for many turns: the summary is
 reused instead of being regenerated before every answer, and the prompt prefix
-stays the same, so provider prompt caches keep matching it. When no summary
-covers the older turns, their excerpts grow with the window: at least 4,000
+stays the same, so provider prompt caches keep matching it. When excerpts are
+needed for uncovered turns, their budget grows with the window: at least 4,000
 characters, otherwise an eighth of the window's estimated tokens.
+
+The service records native reasoning with the provider, concrete model reported
+in the response, and chat protocol. It replays the record when the target of
+the next request matches that source, including when a fallback takes over.
+Mutable routing targets omit native replay. A compatible DeepSeek Chat
+Completions step receives its original `reasoning_content`. A compatible
+OpenRouter step receives the original signed or encrypted
+`reasoning_details` in response order, including blocks saved during automatic
+continuation. If a provider reuses an earlier tool call ID, the conversation
+assigns the new call a unique ID and retains it for its result and approval.
+Older messages with unknown provenance retain their visible reasoning, answer,
+and tool results. Only the answer and tool evidence from those messages are
+available to the next model. [DeepSeek thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/) · [OpenRouter reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
 
 A finished turn keeps the summary ahead of the limit. Once the turns after the
 current summary reach 85% of the window, or sooner if another turn the size of the
@@ -157,11 +177,12 @@ still has to fold before it can start, its response starts first and tells the r
 context is being organized, and a refusal after that arrives as a stream error. After three consecutive
 failures a conversation stops trying until it has grown by ten messages, so a failing
 provider or a summary that never fits does not cost a call on every turn. At most one job runs per
-conversation. A request never waits for one when any summary exists: it answers
-from that summary plus excerpts of the gap behind it. Only a conversation with
-older turns and no summary at all waits, and its response starts first, telling
-the reader context is being organized; if the summary fails, the answer comes
-from the excerpts. Stopping that wait closes the run, and the job carries on,
+conversation. A request with an existing summary can proceed immediately if all
+uncovered messages outside the window fit in full. If a first summary is needed,
+or the uncovered interval would be clipped, the request waits for compaction to
+read the stored history. If compaction fails, the answer gets labelled excerpts
+with the missing range and instructions to verify any exact evidence it needs.
+Stopping that wait closes the run, and the job carries on,
 since the next request needs the same summary. A restore is refused while a job
 holds a model call it will write back, and a job that exits with the process
 loses nothing.
@@ -171,10 +192,14 @@ answer continuing after an approval does, advances the history revision so that
 a summary still being written from the old text is refused; the stored summary
 is cleared only if it does not provably end before the rewritten message.
 
-After a fold, what the model was working with is put back once and then sent unchanged
-until the next fold, so a provider's cache keeps matching it: up to the five most
-recently modified of the files read or edited in the conversation's current folder,
-with a file over 5,000 tokens given as a path to read again, and the skills it used, up
+After a fold, the restored content stays stable for the provider's prompt cache while
+the workspace grant matches. A workspace switch or revocation triggers a fresh restore
+from the current grant. Snapshots saved under earlier restore rules are rebuilt from the
+saved file and skill references. A queued or retried request checks the grant again before
+submitting a prompt with restored file content. The restore includes up to five
+files previously read or edited in the conversation's current folder, ordered by
+modification time with the newest first.
+A file over 5,000 tokens is given as a path to read again. It also restores the skills it used, up
 to 5,000 tokens each and 25,000 in all, keeping the start of each and dropping the
 oldest first. All of it together stays under 15% of the input budget, so on a small
 window files go back as paths. A file still in the conversation is not repeated. A fold
@@ -300,14 +325,13 @@ Older summary formats remain readable; extending their coverage carries their
 valid state forward while rebuilding from stored evidence. Concurrent history
 edits or newer summary coverage prevent an obsolete write from winning.
 
-With no internal sub-agent model, a summary straight after a turn or during one sends the
-conversation exactly as the model just received it, with its system prompt and tool
-definitions, then the writing instructions and the full results of anything shown only
-as excerpts. It therefore reads the prefix from a provider's cache and works from the
-real messages. Its tool definitions cannot run anything. If the conversation has a call
-still waiting for a result, leaves no room, or the model replies with a tool call, the
-summary is written from records instead, as it always is for a person's request and for
-an internal sub-agent model, which have nothing cached to read.
+Older-turn compaction reads the saved messages from the previous coverage boundary
+through the proposed new boundary. The new boundary is written only after the
+summary succeeds and the stored history revision still matches. A fold during a
+turn can reuse the chat model's cached prefix when there is no uncovered interval,
+with the full results of anything shown as excerpts added to the writing request.
+It uses records when the prefix cannot be reused, including when an internal
+sub-agent model writes the summary.
 
 Older-turn summaries receive every stored tool call of each message, each in the
 same bounded record form the in-stream compactor uses, which keeps status, exit
@@ -319,15 +343,35 @@ way the conversation is set to: thinking turned off stays off for them too. Summ
 requests go in one call whenever the model can hold the evidence, and are otherwise
 batched. Summary room follows the model's window: the requested handoff length is a
 sixteenth of the context window,
-between 2,048 and 16,384 tokens and never above the model's output limit. It is
-enforced by the stored state budget rather than by an output cap, so reasoning
-does not cut a handoff short; summary calls follow the chat output rule above.
+between 2,048 and 16,384 tokens and never above the model's output limit. Regular
+summary calls enforce a stored state budget and follow the chat output rule above.
 Each call may use the input budget less that length. The timeout is
 60 seconds per 2,048 output tokens. A request may make at most **Compaction calls per request**
 summary calls (default 20, in model call limits), shared by older-turn summaries
-and in-stream compaction; once used up, compaction keeps labelled excerpts, the
-request continues and its execution details state that the limit was reached.
-They run within a chat request or in the background job after one, are attributed
+and in-stream compaction. Once used up, the request continues with labelled
+excerpts and its execution details show that the limit was reached. If an
+older-turn summary ran out of calls after completing some batches, the waiting
+request can also use that bounded draft as incomplete historical evidence. The draft
+can include the current contents of explicitly named files from earlier reads in the
+active workspace, under a separate restore budget. This material is request-local,
+leaves the saved coverage boundary in place and
+yields to required context when space is tight.
+Each model submission checks the active grant for the restored file contents.
+After a workspace change, rebuilding the prompt keeps the draft and drops those contents.
+When a regular chat send switches to a smaller context window, the previous
+answer's actual model can write the older-turn handoff if the new model would
+likely need more than the remaining calls. The previous model must be available
+through the same provider, have known input and output token rates no higher
+than the new model's, and fit the evidence in one call. A configured internal
+sub-agent model keeps precedence. The attempt counts against the same allowance
+and limits the output to the new model's handoff size. If the previous model
+requires thinking or the adapter explicitly enables it for the request,
+compaction uses the regular path. Thinking shares the output cap with the
+handoff and the effort setting gives no portable bound for that share.
+The attempt requires at least two calls remaining, leaving the receiving model
+a call to write a draft if it fails. Older messages without an actual model
+record use the regular path.
+Summary calls run within a chat request or in the background job after one, are attributed
 as `summary` in usage and are subject to the concurrency limit; those within a
 request stop with it, and they
 do not consume the daily background allowance or background cost ceilings,

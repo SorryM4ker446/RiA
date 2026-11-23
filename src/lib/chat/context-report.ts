@@ -19,6 +19,7 @@ export const contextReportSchema = z.object({
   // local estimate of it. Absent when the provider reported none.
   measuredInputTokens: z.number().int().nonnegative().optional(),
   observedRatio: z.number().positive().optional(),
+  imageInput: z.object({ count: z.number().int().nonnegative(), encodedBytes: z.number().int().nonnegative(), visualTokens: z.number().int().nonnegative() }).optional(),
   // What the last step sent was made of, in estimated tokens. Only the proportions are
   // read: they are scaled to the provider's count, when it gave one.
   breakdown: z.object({

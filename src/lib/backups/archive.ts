@@ -86,7 +86,7 @@ export async function createAccountBackup(prune = true) {
   if (counts.some(count => count > BACKUP_LIMITS.rows) || counts[4] > 50 || documentsCount > DOCUMENT_LIMITS.documentsPerUser || eventCount > 10_000 || reviewCount > 1000 || Number(volume.bytes) > BACKUP_LIMITS.manifest) throw new ApiError({ code: "PAYLOAD_TOO_LARGE", message: t("lib.backups.workspaceTooLarge") });
   const memoryDocument = await db.memoryDocument.findUnique({ where: { id: "local" } });
   const [chats, memories, documents, assets, preferences, usage, events, activityState, reviews, assistantTemplates] = await Promise.all([
-    db.chat.findMany({ include: { tags: true, messages: true } }),
+    db.chat.findMany({ omit: { titleAttempts: true }, include: { tags: true, messages: true } }),
     db.memory.findMany(),
     // Described here; pages, chunks and vectors go into a block per document below. The vector
     // revision only tells the search index what to reload and is not workspace content.

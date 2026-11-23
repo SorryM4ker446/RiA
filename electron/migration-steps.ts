@@ -76,7 +76,33 @@ function documentSearch(database: DatabaseSync) {
   flush();
 }
 
+/** Recover stock titles on chats that were still unused when title sources were introduced. */
+function recoverUntitledChats(database: DatabaseSync) {
+  const applied = database.prepare(`
+    SELECT unixepoch("appliedAt") * 1000 AS "cutoff"
+    FROM "desktop_migrations" WHERE "name" = '20261126100000_chat_title_source'
+  `).get();
+  const cutoff = applied?.cutoff;
+  if (typeof cutoff !== "number") return;
+
+  database.prepare(`
+    UPDATE "chats" AS chat SET "titleSource" = 'auto'
+    WHERE chat."titleSource" = 'named' AND chat."title" IN ('New Chat', '新会话', 'Untitled')
+      AND chat."assistantConfig" IS NULL
+      AND CASE typeof(chat."createdAt") WHEN 'integer' THEN chat."createdAt"
+          ELSE unixepoch(chat."createdAt") * 1000 END < ?
+      AND NOT EXISTS (SELECT 1 FROM "scheduled_jobs" WHERE "chatId" = chat."id")
+      AND NOT EXISTS (SELECT 1 FROM "scheduled_runs" WHERE "chatId" = chat."id")
+      AND NOT EXISTS (
+        SELECT 1 FROM "messages" AS message WHERE message."chatId" = chat."id" AND message."role" = 'user'
+          AND COALESCE(CASE typeof(message."createdAt") WHEN 'integer' THEN message."createdAt"
+              ELSE unixepoch(message."createdAt") * 1000 END, 0) < ?
+      )
+  `).run(cutoff, cutoff + 1000);
+}
+
 export const migrationDataSteps: Readonly<Record<string, (database: DatabaseSync) => void>> = {
   "20261120100000_document_vectors": documentVectors,
   "20261121100000_document_search": documentSearch,
+  "20261128100000_chat_title_attempts": recoverUntitledChats,
 };

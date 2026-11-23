@@ -129,8 +129,8 @@ A new conversation is titled with its first message until a short title is writt
 (`src/lib/chat/conversation-title.ts`). Once a turn of the user's is answered, the internal
 sub-agent model reads the recent conversation (up to eight messages, about 1,800 characters)
 and writes a title of at most 36 characters in the user's language, or none while the
-conversation is only a greeting or a vague opener; it is asked again after the next message,
-and after three messages with nothing to name the first message stays the title. The title is
+conversation is only a greeting or a vague opener. Naming can run again after the next text turn,
+up to three attempts. If none writes a title, the first message stays the title. The title is
 written once and kept: it names the task the conversation was opened for. Naming never holds
 up the answer (it starts when the turn ends, outside the turn's own place for calls), and a
 failed or malformed reply leaves the title as it was. When to name was compared with a real
@@ -145,13 +145,16 @@ session names.
 message (the only title a model may replace), `named` once a title was written or given up on,
 or for a title from elsewhere (a task's name, an older conversation, a restored backup), and
 `manual` once the user renamed it. Renaming always wins, also while a title is being written.
+An upgrade recovers automatic naming on legacy stock-title conversations that had no user
+messages when title sources were first introduced. They can be named after the next text turn.
 `POST /api/conversations` keeps a given `title` as the user's unless it comes with
 `titleSource: "auto"` (the page's own placeholder). Sending no title creates an empty
-conversation with a placeholder. The first saved user message can fill it in the same
+conversation with a placeholder. The first saved user text can fill it in the same
 transaction. `PATCH` with a `title` marks it `manual` unless the request specifies the
 legacy automatic placeholder update. A placeholder keeps at most 36 characters of the
-first message (marked as cut), as long as a written title; a title the user gives keeps up to 60, and the top bar keeps room for about seven characters of the
-title in a narrow window, showing it in full on hover and in its keyboard-accessible menu.
+first message (marked as cut), as long as a written title. A title the user gives keeps up to 60.
+The top bar shows the title while space permits, with the full title available on hover when
+it is truncated and in its keyboard-accessible menu.
 
 ## Stopping a turn
 
@@ -167,7 +170,9 @@ Another window's changes reach this one when it is not reading a turn of its own
   the bottom right corner on hover or keyboard focus, without changing bubble
   size. Touch devices keep these controls visible.
 - **Enter** sends, **Shift+Enter** adds a line; an Enter that is part of an input-method composition does not send.
-- **Escape** closes a delete confirmation; with none open, it stops a running turn.
+- **Escape** closes the context menu or a delete confirmation. In the composer with those closed, it stops a running turn.
+- Right-click, press the menu key, or press **Shift+F10** in the composer to open its editing menu. It opens by the pointer or caret and adjusts near the window edges. Switching conversations starts a fresh undo history for the draft editor. Paste replaces selected text or inserts at the caret. When the clipboard carries both files and plain text, the files attach and the text goes into the draft.
+- In a message body or code block, the context menu copies the selection or selects that body or code block. Scrolling the chat dismisses the menu. Pressing **Escape** after opening it on an image restores the selection you had before opening it. **Copy image** puts the picture on the system clipboard. Copying a selection with text and pictures supplies rich HTML and plain text, with tabs between table cells. Pasting that selection into RiA inserts the text in the draft and adds the embedded images as attachments. If the images exceed paste limits, the text is kept and RiA reports why the images could not be attached.
 - Every answer has a **copy** control. A code block has a header with its language and its own **Copy** control — selecting text across a scrollable code box is a poor substitute. When the clipboard is unavailable the answer is not interrupted and the text stays selectable.
 - **Code, formulas and diagrams.** A code block whose fence names a language highlight.js knows is highlighted, in colours for the light and the dark theme; a fence without a language stays plain text (no guessing). Formulas are typeset with KaTeX: `$…$` and `\(…\)` inline, `$$…$$` and `\[…\]` displayed, scrolling sideways when wider than the answer. A dollar sign before a number is read as a price ("$5 and $10" stays text) unless what follows it looks like a formula. A ```` ```mermaid ```` block is drawn as a diagram, in Mermaid's strict mode and in colours for the current theme; **Source** shows the text, and a diagram that does not parse shows its source with Mermaid's message. These libraries load only when an answer needs them. Code is highlighted as it streams, so a finished answer looks as it did while it was written; a formula or diagram waits until its block is finished, so a half-written one is never typeset or drawn. Rendering stays behind the sanitiser; KaTeX runs after it on the formulas alone and does not allow its HTML-producing commands.
 

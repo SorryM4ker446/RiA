@@ -183,26 +183,38 @@ test("a picture made between two pieces of text shows where it was made, holds i
   expect(saved.picture).toBeLessThan(saved.after);
 });
 
-test("a picture in the conversation opens in the viewer by double-click or its button, Esc returns to it, and the viewer leads to its media detail", async ({ page, app }) => {
+test("a picture in the conversation opens with one click or its button, Esc returns to it, and the viewer leads to its media detail", async ({ page, app }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
   await open(page, app);
   await send(page, "OFFLINE_DRAW 画一只穿宇航服的猫");
   await waitForChatStream(page);
   const figure = answer(page).getByTestId("generated-picture");
   const image = figure.getByRole("img", { name: "生成的图片", exact: true });
+  const openViewer = figure.getByRole("button", { name: "查看大图", exact: true });
   const src = (await image.getAttribute("src"))!;
+  await expect(openViewer).toBeVisible();
+  const [imageBox, buttonBox] = await Promise.all([image.boundingBox(), openViewer.boundingBox()]);
+  expect(buttonBox!.x + buttonBox!.width).toBeCloseTo(imageBox!.x + imageBox!.width, 0);
   const scroller = page.getByTestId("message-list");
   const scrolled = await scroller.evaluate(node => node.scrollTop);
-  await image.dblclick();
+  await expect(figure.getByRole("button", { name: "继续编辑", exact: true })).toHaveCount(0);
+  await image.click();
   const viewer = page.locator(".image-viewer");
   await expect(viewer).toBeVisible();
   await expect(viewer.locator(".image-viewer-picture")).toHaveAttribute("src", src);
   await expect(viewer.getByRole("button", { name: "适应窗口", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
   await expect(viewer).toBeHidden();
-  await expect(figure.getByRole("button", { name: "查看大图", exact: true })).toBeFocused();
+  await expect(openViewer).toBeFocused();
   expect(await scroller.evaluate(node => node.scrollTop)).toBe(scrolled);
-  await figure.getByRole("button", { name: "查看大图", exact: true }).click();
+  await page.locator("textarea[data-chat-draft]").fill("这张图表现了什么？");
+  await image.click({ button: "right" });
+  const reused = page.waitForResponse(response => response.url().endsWith(src) && response.request().method() === "HEAD");
+  await page.getByRole("menuitem", { name: "附加到输入栏", exact: true }).click();
+  expect((await reused).ok()).toBe(true);
+  await expect(page.getByRole("list", { name: "已添加的附件" }).getByRole("img")).toHaveAttribute("src", src);
+  await expect(page.locator("textarea[data-chat-draft]")).toHaveValue("这张图表现了什么？");
+  await openViewer.click();
   await viewer.getByRole("link", { name: "在媒体库中查看", exact: true }).click();
   const id = src.split("/").at(-1)!;
   await expect(page).toHaveURL(new RegExp(`/media\\?asset=${id}$`));
@@ -219,11 +231,19 @@ test("adding a picture to the next question grows the message box smoothly: the 
   await open(page, app);
   await send(page, "OFFLINE_DRAW 画一只穿宇航服的猫");
   await waitForChatStream(page);
-  const input = page.getByPlaceholder(/输入你的问题/);
+  const figure = answer(page).getByTestId("generated-picture");
+  await expect(figure.getByRole("button", { name: "继续编辑", exact: true })).toHaveCount(0);
+  await page.getByRole("combobox").filter({ hasText: "聊天模式" }).click();
+  await page.getByRole("option", { name: "文生图模式", exact: true }).click();
+  const input = page.getByPlaceholder(/描述你想生成的图片/);
   const attachments = page.getByRole("list", { name: "已添加的附件" });
-  // Its name changes while it works ("加入中..."), so it is found by place: the action after "查看大图".
-  const reuse = answer(page).getByTestId("generated-picture").getByRole("button").nth(1);
-  await expect(reuse).toHaveText("带图追问");
+  // Its name changes while it works ("加入中..."), so use its place next to the viewer action.
+  const actions = figure.locator(".chat-picture-actions").getByRole("button");
+  const reuse = actions.nth(1);
+  await expect(reuse).toHaveText("继续编辑");
+  const [viewSize, reuseSize] = await Promise.all([actions.first().boundingBox(), reuse.boundingBox()]);
+  expect(reuseSize?.height).toBe(viewSize?.height);
+  expect(reuseSize?.width).toBe(viewSize?.width);
   const composerBody = page.locator(".composer-body");
   const settleComposer = () => composerBody.evaluate(node => Promise.all(node.getAnimations({ subtree: true })
     .filter(animation => animation instanceof CSSTransition && animation.transitionProperty === "height")

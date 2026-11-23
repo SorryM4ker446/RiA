@@ -68,22 +68,25 @@ test("a greeting is not named; the request that follows is, once, and the title 
 });
 
 test("a name the user gives while a title is being written is kept", async t => {
-  let release!: () => void;
-  titles(t, [() => new Promise(resolve => { release = () => resolve("{\"title\": \"模型的标题\"}"); })]);
+  let signalEntered!: () => void;
+  let release!: (title: string) => void;
+  const entered = new Promise<void>(resolve => { signalEntered = resolve; });
+  const reply = new Promise<string>(resolve => { release = resolve; });
+  titles(t, [() => { signalEntered(); return reply; }]);
   const id = await conversation([["user", "整理第三季度销售数据"]]);
   const naming = nameConversation(id, CHAT_MODEL_REF);
-  await new Promise(resolve => setTimeout(resolve, 20));
+  await entered;
   const renamed = await conversationRoute.PATCH(new NextRequest(`http://localhost/api/conversations/${id}`, {
     method: "PATCH", headers: { host: "localhost", cookie: localAccessCookie(), "content-type": "application/json" }, body: JSON.stringify({ title: "我的季度报告" }),
   }), { params: Promise.resolve({ id }) });
   assert.equal(renamed.status, 200);
-  release();
+  release("{\"title\": \"模型的标题\"}");
   assert.equal(await naming, null);
   assert.deepEqual(await titleOf(id), { title: "我的季度报告", titleSource: "manual" });
 });
 
 test("a failed or malformed reply keeps the first message and is tried again with the next message, up to a limit", async t => {
-  titles(t, [new Error("provider down"), "not json at all", "{\"title\": \"\"}", "{\"title\": \"太晚的标题\"}"]);
+  const prompts = titles(t, [new Error("provider down"), "{\"title\": \"\"}", "not json at all", "{\"title\": \"太晚的标题\"}"]);
   const id = await conversation([["user", "能帮我个忙吗"]]);
   assert.equal(await nameConversation(id, CHAT_MODEL_REF), null);
   assert.deepEqual(await titleOf(id), { title: "能帮我个忙吗", titleSource: "auto" });
@@ -93,7 +96,19 @@ test("a failed or malformed reply keeps the first message and is tried again wit
   // The last attempt still names nothing: the first message stays the title for good.
   assert.equal(await nameConversation(id, CHAT_MODEL_REF), null);
   assert.deepEqual(await titleOf(id), { title: "能帮我个忙吗", titleSource: "named" });
-  assert.equal(TITLE_ATTEMPTS, 3);
+  await db.message.create({ data: { chatId: id, role: "user", content: "又聊了一轮" } });
+  assert.equal(await nameConversation(id, CHAT_MODEL_REF), null);
+  assert.equal(prompts.length, TITLE_ATTEMPTS);
+});
+
+test("saved turns that arrived before naming do not use up its budget", async t => {
+  const prompts = titles(t, ["{\"title\": \"\"}", "{\"title\": \"修复报表导出\"}"]);
+  const id = await conversation([["user", "你好"], ["user", "帮我看看"], ["user", "报表有点问题"], ["user", "导出失败时没有清理临时文件"]]);
+  assert.equal(await nameConversation(id, CHAT_MODEL_REF), null);
+  assert.equal((await titleOf(id)).titleSource, "auto");
+  assert.equal(await nameConversation(id, CHAT_MODEL_REF), "修复报表导出");
+  assert.match(prompts[1], /导出失败时没有清理临时文件/);
+  assert.deepEqual(await titleOf(id), { title: "修复报表导出", titleSource: "named" });
 });
 
 test("RiA's own notices are not the user's words, and titles that are not automatic are left alone", async t => {
@@ -127,6 +142,18 @@ test("a name identical to an empty conversation's title survives its first saved
   }), { params: Promise.resolve({ id }) });
   assert.equal(response.status, 201);
   assert.deepEqual(await titleOf(id), { title: "New Chat", titleSource: "manual" });
+});
+
+test("the first text can fill a stock title after an attachment-only message", async () => {
+  const { id } = await db.chat.create({ data: { title: "New Chat", titleSource: "auto" } });
+  const content = encodePersistedUserMessage({ type: "user-message", text: "", files: [{ url: "https://example.invalid/file.png", mediaType: "image/png" }] });
+  await db.message.create({ data: { chatId: id, role: "user", content } });
+  const response = await messagesRoute.POST(new NextRequest(`http://localhost/api/conversations/${id}/messages`, {
+    method: "POST", headers: { host: "localhost", cookie: localAccessCookie(), "content-type": "application/json" },
+    body: JSON.stringify({ role: "user", content: "请看看这张图" }),
+  }), { params: Promise.resolve({ id }) });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await titleOf(id), { title: "请看看这张图", titleSource: "auto" });
 });
 
 test("a conversation's turn names it once answered, without holding the answer, and a title given on creation is kept", async t => {

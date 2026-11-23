@@ -97,7 +97,8 @@ export async function runAttachmentUpload({ files, isReady, modelMode, existingN
   const combined = dedupeAttachmentNames([...existingNames, ...files.map((file) => file.name ?? "")]);
   const validation = attachmentValidationError(files, modelMode === "chat") || (modelMode === "video" && combined.length > 1 ? t("mediaGen.videoReferenceLimit") : null);
   if (validation) { setPageError(validation); return; }
-  if (existingNames.length + files.length > MEDIA_LIMITS.attachmentCount) { setPageError(t("lib.media.tooManyAttachments")); return; }
+  const maxAttachments = modelMode === "chat" ? MEDIA_LIMITS.attachmentCount : MEDIA_LIMITS.referenceCount;
+  if (existingNames.length + files.length > maxAttachments) { setPageError(t(modelMode === "chat" ? "lib.media.tooManyAttachments" : "server.attachment.tooManyImages")); return; }
   const version = getVersion();
   const conversationId = getConversationId?.() ?? null;
   // A finished upload belongs to the conversation it was started in, so that is
@@ -233,7 +234,7 @@ export function useMediaGeneration({ session, activeChatId, isConversationReady,
   const setAttachmentsOf = (target: ConversationSession, change: (current: UploadableFilePart[]) => UploadableFilePart[]) =>
     target.setDraft(draft => ({ ...draft, attachments: change(draft.attachments) }));
   const replaceAttachments = useCallback((next: UploadableFilePart[]) => setAttachmentsOf(viewRef.current.session, () => next), []);
-  const reuseImageActionLabel = modelMode === "image" ? t("mediaGen.reuseEdit") : modelMode === "chat" ? t("mediaGen.reuseAsk") : t("mediaGen.reuseVideoRef");
+  const reuseImageActionLabel = modelMode === "image" ? t("mediaGen.reuseEdit") : modelMode === "video" ? t("mediaGen.reuseVideoRef") : null;
   function clearAttachments() {
     setAttachmentsOf(session, () => []);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -289,9 +290,12 @@ export function useMediaGeneration({ session, activeChatId, isConversationReady,
       if (blob) {
         await appendAttachments([new File([blob], filename, { type: mediaType })]);
       } else {
-        const count = session.getSnapshot().draft.attachments.length;
+        const current = session.getSnapshot().draft.attachments;
+        const count = current.length;
+        if (current.some(item => item.url === params.imageUrl)) return;
         if (modelMode === "video" && count >= 1) { setPageError(t("mediaGen.videoReferenceLimit")); return; }
-        if (count >= MEDIA_LIMITS.attachmentCount) { setPageError(t("lib.media.tooManyAttachments")); return; }
+        if (modelMode === "chat" && count >= MEDIA_LIMITS.attachmentCount) { setPageError(t("lib.media.tooManyAttachments")); return; }
+        if (modelMode === "image" && count >= MEDIA_LIMITS.referenceCount) { setPageError(t("server.attachment.tooManyImages")); return; }
         setAttachmentsOf(session, current => [...current, { type: "file", url: params.imageUrl, mediaType, filename }]);
       }
       // Focus without scrolling: the conversation stays where it was being read.

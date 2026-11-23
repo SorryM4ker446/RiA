@@ -107,6 +107,15 @@ export function registerIpcHandlers() {
   ipcMain.handle("desktop:startup:claim", event => startupFor(event)?.claim() ?? null);
   ipcMain.handle("desktop:startup:present", (event, token: unknown) => startupFor(event)?.present(token) ?? false);
 
+  ipcMain.handle("desktop:chat:paste", (event) => {
+    assertTrustedIpcSender(event);
+    if (event.senderFrame !== event.sender.mainFrame || !event.sender.isFocused()) return false;
+    // Deliver the platform paste event to the focused editor without granting
+    // the page access to read the system clipboard through the Clipboard API.
+    event.sender.paste();
+    return true;
+  });
+
   /*
    * Where things really are, for the diagnostics the settings copy. The data is
    * opened at a fixed path, which after a move is only a link to where it lives;

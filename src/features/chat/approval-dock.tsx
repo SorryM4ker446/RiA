@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
+import { ASSET_ID_PATTERN, mediaUrl } from "@/lib/media/message-codec";
 import { isToolPart, safeJson, type ToolPart } from "./page-utils";
 import type { ChatState } from "./use-chat-state";
 import { CommandText } from "./command-text";
@@ -48,6 +49,7 @@ function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotCont
   const replaced = typeof entry?.binding?.replaces?.value === "string" ? entry.binding.replaces.value : null;
   // A picture to be made is approved by its description, which the model wrote.
   const picture = part.type === "tool-generateImage" ? part.input as { prompt?: unknown; referenceImages?: unknown; aspectRatio?: unknown } | undefined : undefined;
+  const pictureReferences = Array.isArray(picture?.referenceImages) ? picture.referenceImages.filter((id): id is string => typeof id === "string" && ASSET_ID_PATTERN.test(id)) : [];
   // A terminal command, an entry's text being replaced, or a picture's description is what is being approved, so it is shown from the start.
   const [detailsState, setDetailsState] = useState<"unopened" | "open" | "closed">(terminal || replaced !== null || picture ? "open" : "unopened");
   const expanded = detailsState === "open";
@@ -89,7 +91,7 @@ function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotCont
         {entry ? <p className="truncate text-xs text-muted-foreground" title={String(entry.key ?? "")}>{t(replaced !== null ? "ui.chat.approval-dock.replacesEntry" : "ui.chat.approval-dock.newEntry")}{String(entry.key ?? "")}</p> : null}
         {entry?.binding?.stale ? <p role="alert" className="text-xs text-destructive">{t("ui.chat.approval-dock.staleEntry")}</p> : null}
         {picture ? <p className="text-xs text-muted-foreground">{[
-          Array.isArray(picture.referenceImages) && picture.referenceImages.length ? tf("ui.chat.approval-dock.pictureReferences", { count: picture.referenceImages.length }) : "",
+          pictureReferences.length ? tf("ui.chat.approval-dock.pictureReferences", { count: pictureReferences.length }) : "",
           typeof picture.aspectRatio === "string" ? picture.aspectRatio : "",
           t("ui.chat.approval-dock.pictureCost"),
         ].filter(Boolean).join(" · ")}</p> : null}
@@ -105,6 +107,12 @@ function ApprovalRequest({ part, count, disabled: busyElsewhere, modelCannotCont
     <div id={detailsId} className="approval-details" data-state={expanded ? "open" : "closed"} aria-hidden={!expanded} inert={!expanded}>
       <div className="min-h-0 overflow-hidden">
         <CardContent className="px-3 pb-1 pt-0">
+          {detailsState !== "unopened" && pictureReferences.length ? <div className="mb-2 flex flex-wrap gap-1.5">
+            {pictureReferences.map((id, index) => (
+              // eslint-disable-next-line @next/next/no-img-element -- Only a browser carrying the local session can load a private reference.
+              <img key={id} src={mediaUrl(id)} alt={tf("ui.chat.approval-dock.pictureReference", { index: index + 1 })} className="size-12 rounded border bg-muted object-contain" />
+            ))}
+          </div> : null}
           {detailsState !== "unopened" ? <pre aria-label={terminal ? t("ui.chat.approval-dock.powerShellCommand") : edit ? t("ui.chat.approval-dock.changesAwaitingApproval") : entry ? t("ui.chat.approval-dock.entryAwaitingApproval") : picture ? t("ui.chat.approval-dock.pictureAwaitingApproval") : t("ui.chat.approval-dock.parametersAwaitingApproval")} className="execution-code chat-list-scroll" tabIndex={expanded ? 0 : -1}>{terminal ? <CommandText command={command} /> : edit || replaced !== null ? <DiffText diff={command} /> : command}</pre> : null}
         </CardContent>
       </div>

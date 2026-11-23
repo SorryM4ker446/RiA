@@ -26,17 +26,13 @@ function admitImageRequest(signal: AbortSignal) {
   });
 }
 
-export async function generateStoredMedia(type: "image" | "video", value: unknown, signal: AbortSignal, { allowFallback = true, background = false } = {}) {
-  const preferences = type === "image" ? await admitImageRequest(signal) : await getModelPreferences();
-  const body = type === "image" ? imageRequestSchema.parse(value) : videoRequestSchema.parse(value);
-  if (body.chatId && !await db.chat.findFirst({ where: { id: body.chatId }, select: { id: true } })) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
-  const inputs = "inputImages" in body ? body.inputImages : body.inputImage ? [body.inputImage] : [];
-  const assets = await resolveImageInputs(inputs);
-  const primary = await preferredModel(type, body.model);
+export async function generationModels(type: "image" | "video", hasReferences: boolean, requested?: ModelRef, allowFallback = true, settings?: Awaited<ReturnType<typeof getModelPreferences>>) {
+  const preferences = settings ?? await getModelPreferences();
+  const primary = await preferredModel(type, requested);
   const cached = await modelInLibrary(type, primary);
   if (!cached) throw new ApiError({ code: "CONFIGURATION_ERROR", message: `${t("lib.models.modelWord")} ${primary.modelId} ${t("lib.models.removedSuffix")}` });
   const acceptsInputs = (item: NonNullable<typeof cached>) =>
-    !assets.length || (type === "image" ? item.endpointImageInput === true : item.supportsImageInput);
+    !hasReferences || (type === "image" ? item.endpointImageInput === true : item.supportsImageInput);
   const alternate = allowFallback ? preferences[type].fallback : null;
   const primaryKey = modelRefKey(primary);
   const alternateModel = alternate && modelRefKey(alternate) !== primaryKey ? await modelInLibrary(type, alternate) : null;
@@ -49,8 +45,19 @@ export async function generateStoredMedia(type: "image" | "video", value: unknow
   // Credentials are the provider's own: a library entry from a provider this
   // instance has no key for is a configuration problem, not a request to try
   // some other provider's key against the same id.
-  let model = candidates[0];
+  const model = candidates[0];
   if (!getModelProvider(model.providerId).isConfigured()) throw new ApiError({ code: "CONFIGURATION_ERROR", message: t("lib.models.providerNotConfigured") });
+  return { candidates, primaryKey, acceptsInputs };
+}
+
+export async function generateStoredMedia(type: "image" | "video", value: unknown, signal: AbortSignal, { allowFallback = true, background = false } = {}) {
+  const preferences = type === "image" ? await admitImageRequest(signal) : await getModelPreferences();
+  const body = type === "image" ? imageRequestSchema.parse(value) : videoRequestSchema.parse(value);
+  if (body.chatId && !await db.chat.findFirst({ where: { id: body.chatId }, select: { id: true } })) throw new ApiError({ code: "NOT_FOUND", message: t("server.conversation.notFound") });
+  const inputs = "inputImages" in body ? body.inputImages : body.inputImage ? [body.inputImage] : [];
+  const assets = await resolveImageInputs(inputs);
+  const { candidates, primaryKey, acceptsInputs } = await generationModels(type, assets.length > 0, body.model, allowFallback, preferences);
+  let model = candidates[0];
   const bytes = await Promise.all(assets.map(readMediaAsset));
   setupServerProxy();
   let recipe: GenerationRecipe;
@@ -62,7 +69,7 @@ export async function generateStoredMedia(type: "image" | "video", value: unknow
     const admission = await beginModelAttempt({ mode: type, ref: model, prompt: body.prompt, fallback: usedFallback, source: "media", background, signal });
     const rates = admission.rate;
     try {
-      const validateModel = (authorizedModel: NonNullable<typeof cached>) => {
+      const validateModel = (authorizedModel: Parameters<typeof acceptsInputs>[0]) => {
         if (!acceptsInputs(authorizedModel)) throw new ApiError({ code: "VALIDATION_ERROR", message: t("lib.media.noImageEndpoint") });
       };
       if (type === "image") {

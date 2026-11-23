@@ -2,10 +2,13 @@ import type { z } from "zod";
 import type { FlexibleSchema } from "ai";
 import type { ModelRef } from "@/lib/models/preferences-schema";
 import type { ReviewedAction } from "@/lib/approvals/auto-review";
+import type { ConversationImageScope } from "@/lib/media/conversation-images";
+import type { ApiError } from "@/lib/server/api-error";
 
 export type ToolMode = "chat" | "image" | "video";
 export type ToolTriggerType = "manual" | "auto";
 export type ToolExecutionState = "output-available" | "output-error";
+export type ToolApprovalRefusal = { error: ApiError } | { output: unknown };
 
 type ToolExecutionContext<Input> = {
   workspaceId: string;
@@ -14,6 +17,7 @@ type ToolExecutionContext<Input> = {
   trigger: ToolTriggerType;
   signal?: AbortSignal;
   chatId?: string | null;
+  imageScope?: ConversationImageScope;
   runId?: string | null;
   documentCollections?: string[];
   usesMemory?: boolean;
@@ -143,7 +147,7 @@ export type ToolDescriptor<Input = unknown, Output = unknown> = {
    * preferred; the SDK stores the caller object, so a tool may also write
    * through the reference it is handed.
    */
-  bindForApproval?: (input: unknown) => Promise<unknown>;
+  bindForApproval?: (input: unknown, context?: { chatId?: string | null; imageScope?: ConversationImageScope; imageRequest?: { text: string; files: readonly { url: string; mediaType: string; filename?: string }[] } }) => Promise<void | ToolApprovalRefusal>;
   /**
    * What a call does, as the Auto rule's review is shown it. A tool that has
    * this is reviewed under auto instead of waiting for the user; one without it
