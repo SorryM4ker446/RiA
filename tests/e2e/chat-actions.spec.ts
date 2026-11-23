@@ -204,7 +204,7 @@ for (const width of [1440, 390]) {
 }
 
 for (const { theme, cpuRate } of [{ theme: "dark", cpuRate: 1 }, { theme: "light", cpuRate: 1 }, { theme: "dark", cpuRate: 6 }] as const) {
-test(`compact terminal approval expands directly above the composer in ${theme} theme${cpuRate > 1 ? " with CPU throttling" : ""}`, async ({ page }, testInfo) => {
+test(`compact terminal approval expands above the permission toolbar in ${theme} theme${cpuRate > 1 ? " with CPU throttling" : ""}`, async ({ page }, testInfo) => {
   if (cpuRate > 1) {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
@@ -228,16 +228,20 @@ test(`compact terminal approval expands directly above the composer in ${theme} 
   const code = card.locator("pre");
   await expect(code).toBeVisible();
   await expect(code).toHaveText(command);
-  const permissions = (await page.getByRole("button", { name: /选择工作区|工作区：/ }).first().boundingBox())!;
+  const permissionsButton = page.getByRole("button", { name: /选择工作区|工作区：/ }).first();
+  const permissions = (await permissionsButton.boundingBox())!;
   const composer = (await page.locator(".composer-surface").boundingBox())!;
   const initial = (await card.boundingBox())!;
-  expect(permissions.y + permissions.height).toBeLessThanOrEqual(initial.y);
-  expect(initial.y + initial.height).toBeLessThanOrEqual(composer.y);
+  expect(initial.y + initial.height).toBeLessThanOrEqual(permissions.y);
+  expect(permissions.y + permissions.height).toBeLessThanOrEqual(composer.y);
   await card.getByRole("button", { name: "收起详情", exact: true }).click();
   await expect(card.locator(".approval-details")).toHaveCSS("visibility", "hidden");
   const collapsed = (await card.boundingBox())!;
   expect(collapsed.height).toBeLessThanOrEqual(100);
-  expect(collapsed.y + collapsed.height).toBeLessThanOrEqual(composer.y);
+  expect(collapsed.y + collapsed.height).toBeLessThanOrEqual(permissions.y);
+  // The context/records bar stays anchored above the composer while the approval card folds.
+  expect((await permissionsButton.boundingBox())!.y).toBeCloseTo(permissions.y, 1);
+  expect((await page.locator(".composer-surface").boundingBox())!.y).toBeCloseTo(composer.y, 1);
   await expect(card.getByRole("button", { name: "批准", exact: true })).toBeEnabled();
   await expect(page.getByRole("dialog", { name: "执行记录", exact: true })).toBeHidden();
   await page.screenshot({ path: testInfo.outputPath(`approval-compact-${theme}-desktop.png`) });

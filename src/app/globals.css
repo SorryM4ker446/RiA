@@ -1100,9 +1100,9 @@ article:focus-within .chat-assistant-actions .message-actions,
 .chat-dock-meta > .chat-workspace-picker + .run-records { position: relative; margin-left: 4px; padding-left: 6px; }
 .chat-dock-meta > .chat-workspace-picker + .run-records::before { content: ""; position: absolute; left: 0; top: 50%; width: 1px; height: 11px; translate: 0 -50%; background: hsl(var(--border) / .75); pointer-events: none; }
 .chat-dock-tray { display: flex; min-height: 0; max-height: min(22rem, 42dvh); flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
-.chat-dock-tray > .reveal, .chat-dock-tray > .chat-dock-notice { transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out), margin-top var(--dur-base) var(--ease-out); }
-.chat-dock-tray > .reveal[data-state="open"], .chat-dock-tray > .chat-dock-notice[data-state="open"], .chat-dock-tray > .chat-error { margin-top: 0.5rem; }
-.chat-dock-tray > .reveal[data-state="closed"], .chat-dock-tray > .chat-dock-notice[data-state="closed"] { margin-top: 0; }
+.chat-dock-tray > .reveal, .chat-dock-tray > .chat-dock-notice { transition: grid-template-rows var(--dur-base) var(--ease-out), opacity var(--dur-fast) var(--ease-out), visibility var(--dur-base) var(--ease-out), margin-bottom var(--dur-base) var(--ease-out); }
+.chat-dock-tray > .reveal[data-state="open"], .chat-dock-tray > .chat-dock-notice[data-state="open"], .chat-dock-tray > .chat-error { margin-bottom: 0.5rem; }
+.chat-dock-tray > .reveal[data-state="closed"], .chat-dock-tray > .chat-dock-notice[data-state="closed"] { margin-bottom: 0; }
 .composer-surface { border: 1px solid hsl(var(--input)); border-radius: 18px; background: hsl(var(--card)); box-shadow: 0 4px 24px hsl(var(--shadow) / .05); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
 .composer-surface:focus-within { border-color: hsl(var(--ring) / .6); box-shadow: 0 0 0 3px hsl(var(--ring) / .08), 0 8px 28px hsl(var(--shadow) / .06); }
 .composer-input { scrollbar-gutter: stable; }

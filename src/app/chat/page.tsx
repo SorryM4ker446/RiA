@@ -65,31 +65,8 @@ export default function ChatPage() {
           <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
             <MessageRenderer {...chat} onShowSources={showExecutionDetails} />
 
-            {/* Bottom dock: compact context/records strip, independently scrollable transient cards, and the composer pinned beneath. */}
+            {/* Bottom dock: independently scrollable transient cards above a stationary context/records strip and pinned composer. */}
             <div ref={dock} className="chat-dock flex shrink-0 flex-col px-4 pb-5 pt-2 sm:px-7">
-              <div className="mx-auto flex w-full max-w-[42rem] items-center">
-                <div className="chat-dock-meta">
-                  {chat.modelMode === "chat" && chat.selectedModelInfo?.supportsTools !== false ? <DirectoryPermissions
-                    workspaceGrantId={chat.activeChat?.workspaceGrantId ?? null}
-                    locked={chat.isPending}
-                    saving={chat.isWorkspaceSaving || chat.isLoadingChats}
-                    onSelect={chat.setWorkspace}
-                    // Withdrawing a folder clears it as a workspace on the server; reload so the picker says so.
-                    onChange={() => { void chat.loadToolCatalog(); void chat.loadChats({ silent: true }); }}
-                  /> : null}
-                  {/* Records belong to a conversation known to exist, not one still being restored. */}
-                  <RunRecords
-                    key={chat.confirmedChatId ?? "draft"}
-                    messages={chat.isHistoryReady ? chat.messages : []}
-                    open={!!chat.activeChatId && executionPanel?.chatId === chat.activeChatId}
-                    focusedMessageId={executionPanel?.chatId === chat.activeChatId ? executionPanel.messageId : undefined}
-                    onOpenChange={open => setExecutionPanel(previous => open && chat.activeChatId ? { chatId: chat.activeChatId, ...(previous?.chatId === chat.activeChatId ? { messageId: previous.messageId } : {}) } : null)}
-                    activeChatId={chat.confirmedChatId}
-                    refreshKey={chat.messages.length}
-                  />
-                </div>
-              </div>
-
               <div className="chat-dock-tray">
                 {chat.isHistoryReady ? <PlanStrip messages={chat.messages} isPending={chat.isPending} /> : null}
                 {chat.isHistoryReady ? <ApprovalDock key={chat.activeChatId} {...chat} onDetails={showExecutionDetails} /> : null}
@@ -120,6 +97,29 @@ export default function ChatPage() {
                     </div>
                   </Alert>
                 ) : null}
+              </div>
+
+              <div className="mx-auto flex w-full max-w-[42rem] items-center">
+                <div className="chat-dock-meta">
+                  {chat.modelMode === "chat" && chat.selectedModelInfo?.supportsTools !== false ? <DirectoryPermissions
+                    workspaceGrantId={chat.activeChat?.workspaceGrantId ?? null}
+                    locked={chat.isPending}
+                    saving={chat.isWorkspaceSaving || chat.isLoadingChats}
+                    onSelect={chat.setWorkspace}
+                    // Withdrawing a folder clears it as a workspace on the server; reload so the picker says so.
+                    onChange={() => { void chat.loadToolCatalog(); void chat.loadChats({ silent: true }); }}
+                  /> : null}
+                  {/* Records belong to a conversation known to exist, not one still being restored. */}
+                  <RunRecords
+                    key={chat.confirmedChatId ?? "draft"}
+                    messages={chat.isHistoryReady ? chat.messages : []}
+                    open={!!chat.activeChatId && executionPanel?.chatId === chat.activeChatId}
+                    focusedMessageId={executionPanel?.chatId === chat.activeChatId ? executionPanel.messageId : undefined}
+                    onOpenChange={open => setExecutionPanel(previous => open && chat.activeChatId ? { chatId: chat.activeChatId, ...(previous?.chatId === chat.activeChatId ? { messageId: previous.messageId } : {}) } : null)}
+                    activeChatId={chat.confirmedChatId}
+                    refreshKey={chat.messages.length}
+                  />
+                </div>
               </div>
 
               <Composer {...chat} />
