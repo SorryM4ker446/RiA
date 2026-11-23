@@ -172,10 +172,10 @@ export async function saveChatMessage(params: {
 
   const saved = await db.$transaction(async (tx) => {
     if (updateExisting && normalizedClientMessageId) for (const statement of rewriteStatements(tx, chatId, normalizedClientMessageId)) await statement;
-    // Read and set the placeholder under the same transaction as the first message.
+    // Fill the stock title with the first available text, even after an attachment-only turn.
     if (titleSeed) {
       await tx.chat.updateMany({
-        where: { id: chatId, titleSource: "auto", title: { in: ["New Chat", "新会话", "Untitled"] }, messages: { none: { role: "user" } } },
+        where: { id: chatId, titleSource: "auto", title: { in: ["New Chat", "新会话", "Untitled"] } },
         data: { title: placeholderTitle(titleSeed) },
       });
     }

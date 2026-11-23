@@ -156,6 +156,22 @@ test("the conversation's top bar still moves the window beside its title", async
   expect(box!.x + box!.width).toBeLessThan(search!.x - 120);
 });
 
+test("the top bar shows a short title in full at desktop and compact widths", async ({ page, app }) => {
+  await openWorkspace(page, app.origin);
+  const stored = "你好啊";
+  const chat = (await browserApi(page, `${app.origin}/api/conversations`, "POST", { title: stored, titleSource: "auto" })).body.data;
+  await page.goto(`${app.origin}/chat?conversationId=${chat.id}`);
+  const title = page.locator(".workspace-topbar .chat-title-text");
+  await expect(title).toBeVisible();
+  await expect(title).toHaveText(stored);
+  await expect(page.locator(".sidebar-chat-title").filter({ hasText: stored })).toBeVisible();
+  for (const width of [1280, 1024, 960, 900, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    const { clientWidth, scrollWidth } = await title.evaluate(node => ({ clientWidth: node.clientWidth, scrollWidth: node.scrollWidth }));
+    expect(clientWidth, `${width}px`).toBeGreaterThanOrEqual(scrollWidth);
+  }
+});
+
 test("a long conversation title keeps room to be read in a narrow window, can be read in full, and leaves the row to move the window", async ({ page, app }) => {
   await openWorkspace(page, app.origin);
   const long = "整理第三季度各区域销售数据并找出增长最快的三个产品线以及原因分析和下季度建议";

@@ -15,14 +15,13 @@ import type { ModelRef } from "@/lib/models/preferences-schema";
  * turns, a long first message): asking after each of the user's messages, from
  * the recent conversation, with leave to wait while there is no task yet, named
  * every one well; naming from the first message alone named greetings ("请求帮助").
- * So: asked once each of the user's first few turns has been answered (so it
- * never competes with the answer for a place, and also reads the answer), until
- * a title is written. A conversation that
- * still says no task after three messages keeps its first message as its title.
- * The title stays once written: it names the task the conversation was opened for.
+ * Start after a user turn has been answered, so the title can also use the
+ * answer. Try at most three times, then keep the first message if no title was
+ * written. The title stays once written: it names the task the conversation
+ * was opened for.
  */
 
-/** User messages after which naming is given up and the first message stays the title. */
+/** Maximum naming attempts for a conversation. */
 export const TITLE_ATTEMPTS = 3;
 /** As in Codex: short enough to read in a list. */
 export const TITLE_MAX_CHARACTERS = 36;
@@ -71,6 +70,10 @@ function prompt(conversation: Line[]) {
 type Naming = Map<string, { pending?: ModelRef }>;
 const naming = (): Naming => ((globalThis as { __riaNamingTurns?: Naming }).__riaNamingTurns ??= new Map());
 
+function reportFailure(error: unknown) {
+  console.error("conversation.title.failed", error instanceof Error ? error.name : "UnknownError");
+}
+
 /**
  * Names the conversation if its title is still its first message. Never throws:
  * a failed or empty answer leaves the title as it is, to be tried with the next
@@ -86,26 +89,39 @@ export async function nameConversation(chatId: string, main: ModelRef): Promise<
   const attempt: { pending?: ModelRef } = {};
   naming().set(chatId, attempt);
   try {
-    const chat = await db.chat.findUnique({ where: { id: chatId }, select: { titleSource: true } });
+    const where = { id: chatId, titleSource: "auto" };
+    const chat = await db.chat.findUnique({ where: { id: chatId }, select: { titleSource: true, titleAttempts: true } });
     if (chat?.titleSource !== "auto") return null;
-    const rows = await db.message.findMany({ where: { chatId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { role: true, content: true }, take: 200 });
-    const conversation = lines(rows);
-    const asked = conversation.filter(line => line.role === "user").length;
-    if (!asked) return null;
-    // Past the last attempt (one that failed, say): the first message stays the title.
-    if (asked > TITLE_ATTEMPTS) { await db.chat.updateMany({ where: { id: chatId, titleSource: "auto" }, data: { titleSource: "named" } }); return null; }
-    const title = cleanTitle(await askInternalAgent(main, { system: SYSTEM, prompt: prompt(conversation), read: text => (readJsonReply(text) as { title?: unknown }).title }, { timeoutMs: 60_000 }));
-    if (!title) {
-      // Still no task to name: after enough messages the first one stays the title.
-      if (asked >= TITLE_ATTEMPTS) await db.chat.updateMany({ where: { id: chatId, titleSource: "auto" }, data: { titleSource: "named" } });
+    if (chat.titleAttempts >= TITLE_ATTEMPTS) {
+      await db.chat.updateMany({ where, data: { titleSource: "named" } });
       return null;
     }
-    const written = await db.chat.updateMany({ where: { id: chatId, titleSource: "auto" }, data: { title, titleSource: "named" } });
-    if (!written.count) return null;
+
+    const rows = await db.message.findMany({ where: { chatId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { role: true, content: true }, take: 200 });
+    const conversation = lines(rows.reverse());
+    if (!conversation.some(line => line.role === "user")) return null;
+
+    // Reserve an attempt before calling the model, so restart cannot reset the budget.
+    const reserved = await db.chat.updateMany({
+      where: { ...where, titleAttempts: chat.titleAttempts },
+      data: { titleAttempts: { increment: 1 } },
+    });
+    if (!reserved.count) return null;
+
+    let title = "";
+    try {
+      title = cleanTitle(await askInternalAgent(main, { system: SYSTEM, prompt: prompt(conversation), read: text => (readJsonReply(text) as { title?: unknown }).title }, { timeoutMs: 60_000 }));
+    } catch (error) {
+      reportFailure(error);
+    }
+    if (!title && chat.titleAttempts + 1 < TITLE_ATTEMPTS) return null;
+
+    const written = await db.chat.updateMany({ where, data: { ...(title ? { title } : {}), titleSource: "named" } });
+    if (!title || !written.count) return null;
     announceConversationsChanged();
     return title;
   } catch (error) {
-    console.error("conversation.title.failed", error instanceof Error ? error.name : "UnknownError");
+    reportFailure(error);
     return null;
   } finally {
     naming().delete(chatId);

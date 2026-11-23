@@ -129,8 +129,8 @@ A new conversation is titled with its first message until a short title is writt
 (`src/lib/chat/conversation-title.ts`). Once a turn of the user's is answered, the internal
 sub-agent model reads the recent conversation (up to eight messages, about 1,800 characters)
 and writes a title of at most 36 characters in the user's language, or none while the
-conversation is only a greeting or a vague opener; it is asked again after the next message,
-and after three messages with nothing to name the first message stays the title. The title is
+conversation is only a greeting or a vague opener. Naming can run again after the next text turn,
+up to three attempts. If none writes a title, the first message stays the title. The title is
 written once and kept: it names the task the conversation was opened for. Naming never holds
 up the answer (it starts when the turn ends, outside the turn's own place for calls), and a
 failed or malformed reply leaves the title as it was. When to name was compared with a real
@@ -145,13 +145,16 @@ session names.
 message (the only title a model may replace), `named` once a title was written or given up on,
 or for a title from elsewhere (a task's name, an older conversation, a restored backup), and
 `manual` once the user renamed it. Renaming always wins, also while a title is being written.
+An upgrade recovers automatic naming on legacy stock-title conversations that had no user
+messages when title sources were first introduced. They can be named after the next text turn.
 `POST /api/conversations` keeps a given `title` as the user's unless it comes with
 `titleSource: "auto"` (the page's own placeholder). Sending no title creates an empty
-conversation with a placeholder. The first saved user message can fill it in the same
+conversation with a placeholder. The first saved user text can fill it in the same
 transaction. `PATCH` with a `title` marks it `manual` unless the request specifies the
 legacy automatic placeholder update. A placeholder keeps at most 36 characters of the
-first message (marked as cut), as long as a written title; a title the user gives keeps up to 60, and the top bar keeps room for about seven characters of the
-title in a narrow window, showing it in full on hover and in its keyboard-accessible menu.
+first message (marked as cut), as long as a written title. A title the user gives keeps up to 60.
+The top bar shows the title while space permits, with the full title available on hover when
+it is truncated and in its keyboard-accessible menu.
 
 ## Stopping a turn
 

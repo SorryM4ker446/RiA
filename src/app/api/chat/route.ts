@@ -23,7 +23,7 @@ async function POSTHandler(req: NextRequest) {
     // Given up before it was read (stopped at once): nobody wants this turn. Once
     // started, the request ending no longer ends it.
     if (req.signal.aborted) return new Response(null, { status: 204 });
-    const namesConversation = input.latestUserMessage && !input.latestUserMessage.notice && !input.isApprovalResume && input.body.trigger !== "regenerate-message";
+    const namesConversation = input.latestUserMessage?.text.trim() && !input.latestUserMessage.notice && !input.isApprovalResume && input.body.trigger !== "regenerate-message";
     const requestTurnId = req.headers.get("x-ria-turn-id");
     return await holdTurn(input.requestedChatId ?? crypto.randomUUID(), signal => answerChatRequest(input, signal), {
       source: "chat",

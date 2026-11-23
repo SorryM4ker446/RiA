@@ -79,6 +79,7 @@ model Chat {
   // that happened, was given up on, or the title came from elsewhere (a task),
   // and "manual" once the user named it. Nothing replaces "named" or "manual".
   titleSource     String       @default("named")
+  titleAttempts   Int          @default(0)
   pinned          Boolean      @default(false)
   archived        Boolean      @default(false)
   // When set, this conversation neither reads long-term memory nor writes any.
